@@ -15,6 +15,7 @@ class ParamRecord:
     description: str | None = None
     description_source: str | None = None  # "env-comment" | "krknctl"
     allowed_values: list[str] | None = None
+    group: str | None = None  # krknctl-input.json "group", global params only
 
 
 EXPORT_LINE_RE = re.compile(r'^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$')
@@ -139,15 +140,23 @@ def _as_bool(value: object) -> bool:
     return str(value).strip().lower() == "true"
 
 
-def extract_krknctl_params(path: Path) -> list[ParamRecord]:
+def extract_krknctl_params(path: Path, key: str = "variable") -> list[ParamRecord]:
     """Extract ParamRecords from a krknctl-input.json file
-    (description, type, required, allowed_values)."""
+    (description, type, required, allowed_values, group).
+
+    key picks which JSON field becomes ParamRecord.name. "variable" is the env
+    var, which every caller joins on. "name" is the CLI flag, which is what the
+    krknctl page shows the reader."""
     data = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, list):
         return []
     records = []
     for item in data:
-        if not isinstance(item, dict) or "variable" not in item:
+        if not isinstance(item, dict) or key not in item:
+            continue
+        # "type": "Group" entries name and describe a group but configure
+        # nothing. They have no "variable", so they only show up under "name".
+        if item.get("type") == "Group":
             continue
         raw_default = item.get("default")  # JSON null == no default
         default = str(raw_default) if raw_default is not None else None
@@ -157,13 +166,14 @@ def extract_krknctl_params(path: Path) -> list[ParamRecord]:
             allowed = [v.strip() for v in str(item["allowed_values"]).split(sep)]
         description = item.get("description") or item.get("short_description")
         records.append(ParamRecord(
-            name=item["variable"],
+            name=item[key],
             default=default,
             required=_as_bool(item.get("required", "false")),
             type=item.get("type"),
             description=description,
             description_source="krknctl" if description else None,
             allowed_values=allowed,
+            group=item.get("group"),
         ))
     return records
 

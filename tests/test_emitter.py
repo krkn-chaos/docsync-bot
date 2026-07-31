@@ -20,6 +20,21 @@ def test_krkn_hub_omits_absent_optional_fields():
     assert "required" not in data["params"][0]
 
 
+def test_group_is_emitted_when_present():
+    recs = [ParamRecord(name="wait-duration", default="1", group="general")]
+    p = yaml.safe_load(emit_data_text(
+        "globals", "krknctl", recs, {"wait-duration": "Waits."}, "r"))["params"][0]
+    assert p["group"] == "general"
+
+
+def test_group_is_omitted_when_absent():
+    """Per-scenario params have no group and must not gain an empty key."""
+    p = yaml.safe_load(emit_data_text(
+        "node-scenarios", "krkn-hub", [ParamRecord(name="ACTION")],
+        {"ACTION": "Act."}, "r"))["params"][0]
+    assert "group" not in p
+
+
 def test_krknctl_includes_required_and_possible_values():
     recs = [ParamRecord(name="CLOUD", type="enum", default="aws",
                         required=True, allowed_values=["aws", "gcp"])]

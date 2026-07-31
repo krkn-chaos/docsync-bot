@@ -295,6 +295,43 @@ def test_adv_empty_and_comment_only_files(tmp_path):
     assert extract_env_params(f) == []
 
 
+# group, and the choice of which field becomes the name
+
+def test_krknctl_params_carry_their_group(tmp_path):
+    f = tmp_path / "krknctl-input.json"
+    f.write_text('[{"name": "cerberus-enabled", "variable": "CERBERUS_ENABLED", '
+                 '"group": "cerberus", "default": "False"}]', encoding="utf-8")
+    rec = extract_krknctl_params(f)[0]
+    assert rec.name == "CERBERUS_ENABLED"   # the default key is still "variable"
+    assert rec.group == "cerberus"
+
+
+def test_krknctl_params_can_key_on_the_cli_flag(tmp_path):
+    f = tmp_path / "krknctl-input.json"
+    f.write_text('[{"name": "cerberus-enabled", "variable": "CERBERUS_ENABLED", '
+                 '"group": "cerberus"}]', encoding="utf-8")
+    assert extract_krknctl_params(f, key="name")[0].name == "cerberus-enabled"
+
+
+def test_krknctl_group_descriptors_are_not_params(tmp_path):
+    """A "type": "Group" entry names a group and configures nothing. It has no
+    variable, so keying on name would otherwise pick it up as a parameter."""
+    f = tmp_path / "krknctl-input.json"
+    f.write_text(
+        '[{"name": "cerberus", "description": "Group containing ...", "type": "Group"},'
+        ' {"name": "cerberus-enabled", "variable": "CERBERUS_ENABLED", "group": "cerberus"}]',
+        encoding="utf-8")
+    assert [r.name for r in extract_krknctl_params(f, key="name")] == ["cerberus-enabled"]
+    assert [r.name for r in extract_krknctl_params(f)] == ["CERBERUS_ENABLED"]
+
+
+def test_a_param_without_a_group_gets_none(tmp_path):
+    """Per-scenario krknctl-input.json files carry no group."""
+    f = tmp_path / "krknctl-input.json"
+    f.write_text('[{"variable": "X"}]', encoding="utf-8")
+    assert extract_krknctl_params(f)[0].group is None
+
+
 def test_adv_indented_and_multi_space_export(tmp_path):
     recs = _records(tmp_path, "   export A=${A:=1}\n\texport B=${B:=2}\nexport   C=${C:=3}\n")
     assert recs["A"].default == "1"
