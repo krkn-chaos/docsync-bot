@@ -17,8 +17,8 @@ Project issue: [krkn-chaos/website#320](https://github.com/krkn-chaos/website/is
 ```
 bot/                # the Python package
   parser.py         # env.sh + krknctl-input.json parsers
-  descriptions.py   # description tiering (existing > source > LLM > placeholder)
-  emitter.py        # writes data/params/<scenario>/<source>.yaml
+  descriptions.py   # description priority (source > existing file > LLM)
+  emitter.py        # writes and reads data/params/<scenario>/<source>.yaml
   scaffold.py       # id-mapping, new-page creation, shortcode injection
   doc_bot.py        # entrypoint
 tests/              # pytest, also holds the shortcode Hugo harness from the template PR (they coexist)

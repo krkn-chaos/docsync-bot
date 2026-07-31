@@ -28,6 +28,16 @@ def emit_data_text(scenario, source, records, descriptions, source_ref):
     return _HEADER + dumped
 
 
+def load_descriptions(path):
+    """name -> description from a generated data file, or {} if it is not there.
+    Reads back what emit_data_file writes."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return {p["name"]: p.get("description", "") for p in data.get("params", [])}
+
+
 def emit_data_file(out_root, scenario, source, records, descriptions, source_ref):
     path = Path(out_root) / "data" / "params" / scenario / f"{source}.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
