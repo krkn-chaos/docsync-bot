@@ -5,7 +5,7 @@
 {{- $data := false -}}
 {{- with site.Data.params -}}{{- $data = index . $scenario $source -}}{{- end -}}
 {{- if or (not $data) (not $data.params) -}}
-  {{- warnf "param-table: no data for scenario=%q source=%q (expected data/params/%s/%s.yaml)" $scenario $source $scenario $source -}}
+  {{- errorf "param-table: no data for scenario=%q source=%q (expected data/params/%s/%s.yaml)" $scenario $source $scenario $source -}}
 {{- else -}}
   {{- $rows := $data.params -}}
   {{- $showType := false -}}{{- $showValues := false -}}{{- $showDefault := false -}}{{- $showRequired := false -}}

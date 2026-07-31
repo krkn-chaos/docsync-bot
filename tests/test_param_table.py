@@ -145,22 +145,20 @@ params:
     ]
 
 
-# missing data and empty params render nothing, warn, and keep the build green
+# a missing data file or empty params list fails the build (the errorf gate)
 
-def test_missing_data_file_silent_with_warning(site):
-    rel = site.page("ghost", "ghost", "krkn-hub")  # no data() call
+def test_missing_data_file_fails_build(site):
+    site.page("ghost", "ghost", "krkn-hub")  # no data() call
     proc = site.build()
-    assert proc.returncode == 0, proc.stderr
-    assert no_table(site.html(rel))
+    assert proc.returncode != 0
     assert 'param-table: no data for scenario="ghost"' in proc.stderr
 
 
-def test_empty_params_silent_with_warning(site):
+def test_empty_params_fails_build(site):
     site.data("empty", "krkn-hub", "params: []\n")
-    rel = site.page("empty", "empty", "krkn-hub")
+    site.page("empty", "empty", "krkn-hub")
     proc = site.build()
-    assert proc.returncode == 0, proc.stderr
-    assert no_table(site.html(rel))
+    assert proc.returncode != 0
     assert 'param-table: no data for scenario="empty"' in proc.stderr
 
 
