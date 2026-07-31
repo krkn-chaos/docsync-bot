@@ -95,6 +95,10 @@ def _parse_export_line(line: str) -> ParamRecord | None:
         return None
 
     if body == "":
+        # export A=${B} re-exports something else, e.g. KUBECONFIG=${KRKN_KUBE_CONFIG}.
+        # That is plumbing, not a knob. export A=${A} is a real required input.
+        if name != m.group(1):
+            return None
         # export VAR=${VAR} -- declared but no default: required
         default, required = None, True
     elif body.startswith((":=", ":-")):
@@ -130,7 +134,28 @@ def extract_env_params(path: Path) -> list[ParamRecord]:
         rec = _parse_export_line(line)
         if rec is not None and rec.name not in records:
             records[rec.name] = rec
+    _resolve_references(records)
     return list(records.values())
+
+
+_REF_RE = re.compile(r'^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$')
+
+
+def _resolve_references(records: dict) -> None:
+    """Replace a default that is only a pointer at another variable.
+
+    env.sh has RESILIENCY_FILE=${RESILIENCY_FILE:=$ALERTS_PATH}. A literal
+    "$ALERTS_PATH" in a docs table tells a reader nothing, so look up the sibling
+    it names. No sibling means no default, which beats printing a shell fragment.
+    """
+    for rec in records.values():
+        if rec.default is None:
+            continue
+        m = _REF_RE.match(rec.default.strip())
+        if not m:
+            continue
+        target = records.get(m.group(1))
+        rec.default = target.default if target is not None else None
 
 
 def _as_bool(value: object) -> bool:

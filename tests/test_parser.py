@@ -115,9 +115,12 @@ def test_extract_first_declaration_wins(tmp_path):
     assert "KUBECONFIG" not in recs
 
 
-def test_extract_variable_reference_default_kept_literal(tmp_path):
+def test_extract_variable_reference_alone_is_not_a_default(tmp_path):
+    # Was: the literal "$ALERTS_PATH" is kept. It reached the rendered table,
+    # where it tells a reader nothing. With no sibling to resolve against,
+    # reporting no default is better.
     recs = _records(tmp_path, "export RESILIENCY_FILE=${RESILIENCY_FILE:=$ALERTS_PATH}\n")
-    assert recs["RESILIENCY_FILE"].default == "$ALERTS_PATH"
+    assert recs["RESILIENCY_FILE"].default is None
 
 
 def test_extract_unquoted_default_with_spaces(tmp_path):
@@ -316,3 +319,29 @@ def test_adv_krknctl_boolean_and_numeric_json_types(tmp_path):
     recs = extract_krknctl_params(f)
     assert recs[0].default == "600"
     assert recs[0].required is True
+
+
+# alias exports and reference defaults
+
+def test_alias_export_is_not_a_param(tmp_path):
+    """Root env.sh: export KUBECONFIG=${KRKN_KUBE_CONFIG} re-exports a different
+    variable. Nobody sets KUBECONFIG here, so it is not a param."""
+    assert _records(tmp_path, "export KUBECONFIG=${KRKN_KUBE_CONFIG}\n") == {}
+
+
+def test_self_reference_stays_a_required_param(tmp_path):
+    """pvc-scenario: export PVC_NAME=${PVC_NAME} is a real required input."""
+    rec = _records(tmp_path, "export FOO=${FOO}\n")["FOO"]
+    assert rec.required is True and rec.default is None
+
+
+def test_a_default_referencing_another_var_is_resolved(tmp_path):
+    recs = _records(tmp_path,
+                    "export ALERTS_PATH=${ALERTS_PATH:=config/alerts.yaml}\n"
+                    "export RESILIENCY_FILE=${RESILIENCY_FILE:=$ALERTS_PATH}\n")
+    assert recs["RESILIENCY_FILE"].default == "config/alerts.yaml"
+
+
+def test_an_unresolvable_reference_becomes_no_default(tmp_path):
+    recs = _records(tmp_path, "export FOO=${FOO:=$NOT_DECLARED_HERE}\n")
+    assert recs["FOO"].default is None
