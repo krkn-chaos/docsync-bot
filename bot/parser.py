@@ -95,6 +95,10 @@ def _parse_export_line(line: str) -> ParamRecord | None:
         return None
 
     if body == "":
+        # export A=${B} re-exports something else, e.g. KUBECONFIG=${KRKN_KUBE_CONFIG}.
+        # That is plumbing, not a knob. export A=${A} is a real required input.
+        if name != m.group(1):
+            return None
         # export VAR=${VAR} -- declared but no default: required
         default, required = None, True
     elif body.startswith((":=", ":-")):
@@ -130,7 +134,40 @@ def extract_env_params(path: Path) -> list[ParamRecord]:
         rec = _parse_export_line(line)
         if rec is not None and rec.name not in records:
             records[rec.name] = rec
+    _resolve_references(records)
     return list(records.values())
+
+
+# Only $NAME and ${NAME}. Braces have to match, or a literal default like
+# "${FOO" would be mistaken for a reference and silently dropped.
+_REF_RE = re.compile(r'^\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})$')
+
+
+def _resolve_references(records: dict) -> None:
+    """Replace a default that is only a pointer at another variable.
+
+    env.sh has RESILIENCY_FILE=${RESILIENCY_FILE:=$ALERTS_PATH}. A literal
+    "$ALERTS_PATH" in a docs table tells a reader nothing, so look up the sibling
+    it names. No sibling means no default, which beats printing a shell fragment.
+
+    Follows chains, so A -> $B -> $C -> "x" gives every one of them "x". A single
+    pass would leave A holding "$C" or "x" depending on declaration order.
+    """
+    def resolve(name, seen):
+        rec = records.get(name)
+        if rec is None or rec.default is None:
+            return None
+        m = _REF_RE.match(rec.default.strip())
+        if not m:
+            return rec.default
+        if name in seen:            # A -> $B -> $A, no concrete value to find
+            return None
+        return resolve(m.group(1) or m.group(2), seen | {name})
+
+    # Resolve every record before assigning any, so no lookup reads a value
+    # that this pass has already rewritten.
+    for name, default in {n: resolve(n, set()) for n in records}.items():
+        records[name].default = default
 
 
 def _as_bool(value: object) -> bool:
