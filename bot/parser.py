@@ -15,6 +15,8 @@ class ParamRecord:
     description: str | None = None
     description_source: str | None = None  # "env-comment" | "krknctl"
     allowed_values: list[str] | None = None
+    group: str | None = None  # krknctl-input.json "group", global params only
+    flag: str | None = None   # krknctl CLI flag, e.g. cerberus-enabled
 
 
 EXPORT_LINE_RE = re.compile(r'^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$')
@@ -178,13 +180,23 @@ def _as_bool(value: object) -> bool:
 
 def extract_krknctl_params(path: Path) -> list[ParamRecord]:
     """Extract ParamRecords from a krknctl-input.json file
-    (description, type, required, allowed_values)."""
+    (description, type, required, allowed_values, group, flag).
+
+    Each entry carries two identifiers: "variable" is the env var, which is what
+    joins against env.sh, and "name" is the CLI flag the krknctl page shows a
+    reader. Both travel on the record, so a caller that needs to display flags
+    swaps them rather than re-parsing the file with a different key."""
     data = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, list):
         return []
     records = []
     for item in data:
         if not isinstance(item, dict) or "variable" not in item:
+            continue
+        # "type": "Group" entries name and describe a group but configure
+        # nothing. They carry no "variable" today, so the check above already
+        # skips them; this keeps them out if one ever gains one.
+        if item.get("type") == "Group":
             continue
         raw_default = item.get("default")  # JSON null == no default
         default = str(raw_default) if raw_default is not None else None
@@ -201,6 +213,8 @@ def extract_krknctl_params(path: Path) -> list[ParamRecord]:
             description=description,
             description_source="krknctl" if description else None,
             allowed_values=allowed,
+            group=item.get("group"),
+            flag=item.get("name"),
         ))
     return records
 
