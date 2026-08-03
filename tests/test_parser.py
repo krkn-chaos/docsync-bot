@@ -295,41 +295,55 @@ def test_adv_empty_and_comment_only_files(tmp_path):
     assert extract_env_params(f) == []
 
 
-# group, and the choice of which field becomes the name
+# group and flag, the two krknctl-only fields
 
 def test_krknctl_params_carry_their_group(tmp_path):
     f = tmp_path / "krknctl-input.json"
     f.write_text('[{"name": "cerberus-enabled", "variable": "CERBERUS_ENABLED", '
                  '"group": "cerberus", "default": "False"}]', encoding="utf-8")
     rec = extract_krknctl_params(f)[0]
-    assert rec.name == "CERBERUS_ENABLED"   # the default key is still "variable"
+    assert rec.name == "CERBERUS_ENABLED"
     assert rec.group == "cerberus"
 
 
-def test_krknctl_params_can_key_on_the_cli_flag(tmp_path):
+def test_krknctl_params_carry_both_identifiers(tmp_path):
+    """The env var joins against env.sh, the flag is what the krknctl page shows.
+    Both ride on the record so nothing has to parse the file twice."""
     f = tmp_path / "krknctl-input.json"
     f.write_text('[{"name": "cerberus-enabled", "variable": "CERBERUS_ENABLED", '
                  '"group": "cerberus"}]', encoding="utf-8")
-    assert extract_krknctl_params(f, key="name")[0].name == "cerberus-enabled"
+    rec = extract_krknctl_params(f)[0]
+    assert rec.name == "CERBERUS_ENABLED"
+    assert rec.flag == "cerberus-enabled"
 
 
 def test_krknctl_group_descriptors_are_not_params(tmp_path):
-    """A "type": "Group" entry names a group and configures nothing. It has no
-    variable, so keying on name would otherwise pick it up as a parameter."""
+    """A "type": "Group" entry names a group and configures nothing."""
     f = tmp_path / "krknctl-input.json"
     f.write_text(
         '[{"name": "cerberus", "description": "Group containing ...", "type": "Group"},'
         ' {"name": "cerberus-enabled", "variable": "CERBERUS_ENABLED", "group": "cerberus"}]',
         encoding="utf-8")
-    assert [r.name for r in extract_krknctl_params(f, key="name")] == ["cerberus-enabled"]
     assert [r.name for r in extract_krknctl_params(f)] == ["CERBERUS_ENABLED"]
+
+
+def test_a_group_descriptor_is_skipped_even_if_it_gains_a_variable(tmp_path):
+    """Today they carry no variable, so the variable check alone would do it.
+    This pins the intent so a data change upstream cannot leak a phantom param
+    into a published table."""
+    f = tmp_path / "krknctl-input.json"
+    f.write_text('[{"name": "cerberus", "variable": "CERBERUS", "type": "Group"}]',
+                 encoding="utf-8")
+    assert extract_krknctl_params(f) == []
 
 
 def test_a_param_without_a_group_gets_none(tmp_path):
     """Per-scenario krknctl-input.json files carry no group."""
     f = tmp_path / "krknctl-input.json"
     f.write_text('[{"variable": "X"}]', encoding="utf-8")
-    assert extract_krknctl_params(f)[0].group is None
+    rec = extract_krknctl_params(f)[0]
+    assert rec.group is None
+    assert rec.flag is None
 
 
 def test_adv_indented_and_multi_space_export(tmp_path):
