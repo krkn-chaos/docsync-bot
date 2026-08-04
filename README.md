@@ -32,7 +32,14 @@ The `tests/fixtures/` files are real `env.sh` and `krknctl-input.json` taken fro
 
 ```
 pip install -e .
-python -m bot.doc_bot --scenario node-scenarios --scaffold
+
+# Both sources are required, even for one scenario: the bot builds a scenario
+# table by leaving out the global params, and those come from krkn.
+git clone --depth 1 https://github.com/krkn-chaos/krkn-hub.git
+git clone --depth 1 https://github.com/krkn-chaos/krkn.git
+
+KRKN_HUB_PATH=krkn-hub KRKN_PATH=krkn \
+  python -m bot.doc_bot --scenario node-scenarios --scaffold
 pytest
 ```
 
