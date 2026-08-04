@@ -22,9 +22,6 @@ class ParamRecord:
 EXPORT_LINE_RE = re.compile(r'^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$')
 VAR_NAME_RE = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
 
-# Backtick-wrapped uppercase identifiers in markdown tables
-GLOBAL_PARAM_RE = re.compile(r'`([A-Z][A-Z0-9_]+)`')
-
 
 def _strip_quotes(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
@@ -219,9 +216,28 @@ def extract_krknctl_params(path: Path) -> list[ParamRecord]:
     return records
 
 
-def build_skip_list(all_scenario_env_path: Path) -> set[str]:
-    """Extract global params shared across all scenarios from all-scenario-env.md."""
-    text = all_scenario_env_path.read_text()
-    found = set(GLOBAL_PARAM_RE.findall(text))
-    found |= {"SCENARIO_TYPE", "SCENARIO_FILE", "IMAGE"}
-    return found
+def build_skip_list(krkn_hub_root, krkn_root) -> set[str]:
+    """Global params, which a per-scenario table must not repeat.
+    Tolerant of a missing source so tests can use small fixtures; CLI entry
+    points call require_sources() first."""
+    names: set[str] = set()
+    env = Path(krkn_hub_root) / "env.sh"
+    if env.exists():
+        names |= {r.name for r in extract_env_params(env)}
+    ctl = Path(krkn_root) / "containers/krknctl-input.json"
+    if ctl.exists():
+        names |= {r.name for r in extract_krknctl_params(ctl)}
+    # Set by the run.sh wrapper, not declared in either source.
+    return names | {"SCENARIO_TYPE", "SCENARIO_FILE", "IMAGE"}
+
+
+def require_sources(krkn_hub_root, krkn_root) -> None:
+    """Fail loudly when a global parameter source is missing. A missing source
+    shrinks the skip list to 3 names, leaking 79 global params into every
+    per-scenario table."""
+    for path, hint in ((Path(krkn_hub_root) / "env.sh", "KRKN_HUB_PATH"),
+                       (Path(krkn_root) / "containers/krknctl-input.json", "KRKN_PATH")):
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Global parameter source not found: {path}. "
+                f"Set {hint} to the repo root, or clone it in the workflow.")

@@ -62,12 +62,18 @@ steps:
       done
       echo "scenarios=$scenarios" >> "$GITHUB_OUTPUT"
   - name: Install docs bot
-    run: pip3 install "git+https://github.com/StrikerEureka34/krkn-docs-bot-gh-aw.git@main"
-  - name: Clone krkn-hub source
-    run: git clone --depth 1 https://github.com/StrikerEureka34/krkn-hub.git "$RUNNER_TEMP/krkn-hub"
+    run: pip3 install "git+https://github.com/krkn-chaos/docsync-bot.git@main"
+  - name: Clone the parameter sources
+    run: |
+      # krkn-hub holds the per-scenario params, krkn the global ones. Both are
+      # needed even for a single scenario: the bot has to know which params are
+      # global so it can leave them out of that scenario's table.
+      git clone --depth 1 https://github.com/krkn-chaos/krkn-hub.git "$RUNNER_TEMP/krkn-hub"
+      git clone --depth 1 https://github.com/krkn-chaos/krkn.git "$RUNNER_TEMP/krkn"
   - name: Generate parameter data and scaffold
     env:
       KRKN_HUB_PATH: ${{ runner.temp }}/krkn-hub
+      KRKN_PATH: ${{ runner.temp }}/krkn
     run: |
       for scenario in ${{ steps.scn.outputs.scenarios }}; do
         echo "Generating: $scenario"

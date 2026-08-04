@@ -1,8 +1,12 @@
 from pathlib import Path
+
+import pytest
+
 from bot.parser import (
     build_skip_list,
     extract_env_params,
     extract_krknctl_params,
+    require_sources,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -14,16 +18,40 @@ def _records(tmp_path, text):
     return {r.name: r for r in extract_env_params(f)}
 
 
-def test_build_skip_list(tmp_path):
-    md = tmp_path / "all-scenario-env.md"
-    md.write_text("| `WAIT_DURATION` | 60 |\n| `KUBECONFIG` | path |\n")
-    skip = build_skip_list(md)
-    assert "WAIT_DURATION" in skip
-    assert "KUBECONFIG" in skip
-    assert "SCENARIO_TYPE" in skip    # hardcoded fallback always present
-    assert "SCENARIO_FILE" in skip
-    assert "IMAGE" in skip
+def _sources(tmp_path, env=None, krknctl=None):
+    """A krkn-hub root and a krkn root, each holding a global source or not."""
+    hub, krkn = tmp_path / "krkn-hub", tmp_path / "krkn"
+    hub.mkdir()
+    (krkn / "containers").mkdir(parents=True)
+    if env is not None:
+        (hub / "env.sh").write_text(env)
+    if krknctl is not None:
+        (krkn / "containers/krknctl-input.json").write_text(krknctl)
+    return hub, krkn
 
+
+def test_skip_list_covers_both_sources(tmp_path):
+    hub, krkn = _sources(
+        tmp_path,
+        env='export WAIT_DURATION="${WAIT_DURATION:-60}"\n',
+        krknctl='[{"variable": "TELEMETRY_ENABLED", "name": "telemetry-enabled"}]')
+    skip = build_skip_list(hub, krkn)
+    assert "WAIT_DURATION" in skip
+    assert "TELEMETRY_ENABLED" in skip
+    # Set by run.sh, so neither source declares them.
+    assert {"SCENARIO_TYPE", "SCENARIO_FILE", "IMAGE"} <= skip
+
+
+def test_skip_list_tolerates_a_missing_source(tmp_path):
+    hub, krkn = _sources(tmp_path, env='export WAIT_DURATION="${WAIT_DURATION:-60}"\n')
+    assert build_skip_list(hub, krkn) == {
+        "WAIT_DURATION", "SCENARIO_TYPE", "SCENARIO_FILE", "IMAGE"}
+
+
+def test_require_sources_names_the_file_and_how_to_point_at_it(tmp_path):
+    hub, krkn = _sources(tmp_path, env="")
+    with pytest.raises(FileNotFoundError, match="KRKN_PATH"):
+        require_sources(hub, krkn)
 
 
 def test_extract_bare_var_is_required_no_default(tmp_path):

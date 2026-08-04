@@ -4,7 +4,8 @@ import json
 import os
 from pathlib import Path
 
-from bot.parser import extract_env_params, extract_krknctl_params, build_skip_list
+from bot.parser import (extract_env_params, extract_krknctl_params,
+                        build_skip_list, require_sources)
 from bot.descriptions import resolve_descriptions
 from bot.emitter import emit_data_file, load_descriptions
 
@@ -31,12 +32,13 @@ def _emit_one(scenario, source, records, website_root, source_ref):
     emit_data_file(website_root, scenario, source, records, descs, source_ref)
 
 
-def run(scenario, krkn_hub_root, website_root, source_ref="HEAD"):
+def run(scenario, krkn_hub_root, website_root, krkn_root: str | Path = "krkn",
+        source_ref="HEAD"):
     krkn_hub_root, website_root = Path(krkn_hub_root), Path(website_root)
     scn = krkn_hub_root / scenario
     if not scn.exists():
         raise ValueError(f"Scenario directory not found: {scn}")
-    skip = build_skip_list(website_root / "content/en/docs/scenarios/all-scenario-env.md")
+    skip = build_skip_list(krkn_hub_root, krkn_root)
 
     if (scn / "env.sh").exists():
         recs = [r for r in extract_env_params(scn / "env.sh") if r.name not in skip]
@@ -63,13 +65,15 @@ def main():
 
     website_root = Path(os.environ.get("WEBSITE_ROOT", "."))
     krkn_hub_root = Path(os.environ.get("KRKN_HUB_PATH", "krkn-hub"))
+    krkn_root = Path(os.environ.get("KRKN_PATH", "krkn"))
     scenario = args.scenario
     if not scenario and args.payload:
         scenario = json.loads(args.payload)["scenario"]
     if not scenario:
         p.error("a scenario is required (via --scenario or payload)")
 
-    run(scenario, krkn_hub_root, website_root)
+    require_sources(krkn_hub_root, krkn_root)
+    run(scenario, krkn_hub_root, website_root, krkn_root)
     if args.scaffold:
         from bot.scaffold import scaffold_scenario
         scaffold_scenario(scenario, website_root)
