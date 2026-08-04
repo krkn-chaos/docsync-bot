@@ -77,7 +77,14 @@ steps:
     run: |
       for scenario in ${{ steps.scn.outputs.scenarios }}; do
         echo "Generating: $scenario"
-        python3 -m bot.doc_bot --scenario "$scenario" --scaffold
+        # "globals" is not a krkn-hub directory. Those params come from
+        # krkn-hub/env.sh and krkn/containers/krknctl-input.json, so they have
+        # their own entry point rather than a scenario folder to read.
+        if [ "$scenario" = "globals" ]; then
+          python3 -m bot.globals --krkn-hub "$KRKN_HUB_PATH" --krkn "$KRKN_PATH"
+        else
+          python3 -m bot.doc_bot --scenario "$scenario" --scaffold
+        fi
       done
   - name: Commit generated files to a branch
     env:

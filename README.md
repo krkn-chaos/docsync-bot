@@ -20,11 +20,16 @@ bot/                # the Python package
   descriptions.py   # description priority (source > existing file > LLM)
   emitter.py        # writes and reads data/params/<scenario>/<source>.yaml
   scaffold.py       # id-mapping, new-page creation, shortcode injection
-  doc_bot.py        # entrypoint
+  doc_bot.py        # entrypoint, one scenario at a time
+  globals.py        # entrypoint for the two global parameter pages
 tests/              # pytest, also holds the shortcode Hugo harness from the template PR (they coexist)
   fixtures/         # real env.sh and krknctl-input.json from krkn-hub scenarios
-website-template/   # the param-table shortcode (see its own README)
+website-template/   # the param-table shortcode and the doc-sync workflow (see its own README)
+krkn-hub-template/  # trigger workflow for krkn-hub (see its own README)
+krkn-template/      # trigger workflow for krkn (see its own README)
 ```
+
+Two entry points because the sources have two shapes. Per-scenario params live in one krkn-hub directory per scenario, so `doc_bot` takes a scenario name. Global params live in `krkn-hub/env.sh` and `krkn/containers/krknctl-input.json`, with no scenario directory to read, so `globals` takes the two repo roots.
 
 The `tests/fixtures/` files are real `env.sh` and `krknctl-input.json` taken from krkn-hub scenarios, used as golden inputs so the parser is tested against the actual formats and their quirks (nested braces, malformed defaults, the full krknctl schema), not simplified toy data.
 
