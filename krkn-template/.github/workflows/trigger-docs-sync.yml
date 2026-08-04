@@ -1,13 +1,14 @@
-name: Trigger docs sync on merged PR
+name: Trigger docs sync
 
-# krkn owns the global parameters, in containers/krknctl-input.json. When a
-# merged PR changes that file, tell the website's Doc Sync workflow to
-# regenerate the two global parameter pages.
-# Uses a GitHub App token scoped to the website (no personal PAT).
+# krkn owns the global parameters, in containers/krknctl-input.json. When that
+# file lands on main, tell the website's Doc Sync workflow to regenerate the two
+# global parameter pages. Uses a GitHub App token scoped to the website, no PAT.
+#
+# push, not pull_request: a PR from a fork gets no repository secrets.
 
 on:
-  pull_request:
-    types: [closed]
+  push:
+    branches: [main]
     paths:
       - containers/krknctl-input.json
 
@@ -16,7 +17,6 @@ permissions:
 
 jobs:
   dispatch:
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
       - name: Mint a website-scoped app token
