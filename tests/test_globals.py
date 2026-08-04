@@ -1,5 +1,6 @@
 import json
 
+import pytest
 import yaml
 
 from bot import globals as g
@@ -64,6 +65,25 @@ def test_an_entry_without_a_flag_keeps_its_variable_name(tmp_path):
     hub, krkn = _sources(tmp_path, "", [{"variable": "ONLY_A_VAR", "group": "cerberus"}])
     ctl, _ = g.build_groups(hub, krkn)
     assert [r.name for r in ctl] == ["ONLY_A_VAR"]
+
+
+def test_an_entry_without_a_group_lands_in_other(tmp_path):
+    """A row emitted with no group matches no group-filtered call, so it would
+    drop off the page rather than surface somewhere wrong."""
+    hub, krkn = _sources(tmp_path, "", [{"name": "no-group", "variable": "NO_GROUP"}])
+    web = tmp_path / "web"
+    g.emit(web, hub, krkn)
+    assert _rows(web, "krknctl")[0]["group"] == "other"
+
+
+def test_a_missing_env_sh_is_refused_at_the_cli(tmp_path, monkeypatch):
+    """emit() on its own would write an empty krkn-hub.yaml over the committed one."""
+    hub, krkn = _sources(tmp_path, "", CTL)
+    (hub / "env.sh").unlink()
+    monkeypatch.setattr("sys.argv", ["globals", "--krkn-hub", str(hub), "--krkn", str(krkn),
+                                     "--website", str(tmp_path / "web")])
+    with pytest.raises(FileNotFoundError, match="KRKN_HUB_PATH"):
+        g.main()
 
 
 def test_emits_one_file_per_source_not_per_group(tmp_path):

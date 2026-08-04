@@ -14,7 +14,7 @@ from collections import defaultdict
 from dataclasses import replace
 from pathlib import Path
 
-from bot.parser import extract_env_params, extract_krknctl_params
+from bot.parser import extract_env_params, extract_krknctl_params, require_sources
 from bot.emitter import emit_data_file, load_descriptions
 from bot.descriptions import resolve_descriptions
 
@@ -30,8 +30,11 @@ def build_groups(krkn_hub_root, krkn_root):
     description, from the matching krknctl entry when they have none."""
     records = extract_krknctl_params(Path(krkn_root) / _KRKNCTL_REL)
     by_var = {r.name: r for r in records}
-    # An entry with no flag falls back to its variable name rather than vanishing.
-    ctl = [replace(r, name=r.flag) if r.flag else r for r in records]
+    # An entry with no flag falls back to its variable name rather than
+    # vanishing, and one with no group joins "other". A row emitted without a
+    # group matches no group-filtered call, so it would drop off the page.
+    ctl = [replace(r, name=r.flag or r.name, group=r.group or OTHER_GROUP)
+           for r in records]
 
     env_path = Path(krkn_hub_root) / "env.sh"
     env = extract_env_params(env_path) if env_path.exists() else []
@@ -82,6 +85,7 @@ def main() -> None:
     ap.add_argument("--website", default=".", help="Path to the website repo root")
     ap.add_argument("--source-ref", default="HEAD")
     args = ap.parse_args()
+    require_sources(args.krkn_hub, args.krkn)
     for path in emit(args.website, args.krkn_hub, args.krkn, args.source_ref):
         print(path)
 
