@@ -3,7 +3,7 @@ name = "krkn-docs-bot"
 version = "0.1.6"
 description = "Documentation sync bot for krkn-chaos, gh-aw edition"
 requires-python = ">=3.11"
-dependencies = ["PyYAML>=6.0"]
+dependencies = ["PyYAML>=6.0", "PyGithub>=2.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]

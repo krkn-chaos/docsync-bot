@@ -22,6 +22,8 @@ bot/                # the Python package
   scaffold.py       # id-mapping, new-page creation, shortcode injection
   doc_bot.py        # entrypoint, one scenario at a time
   globals.py        # entrypoint for the two global parameter pages
+  drift_scanner.py  # entrypoint, report-only: sources vs committed tables
+  github_client.py  # opens and edits the rolling docs-drift issue
 tests/              # pytest, also holds the shortcode Hugo harness from the template PR (they coexist)
   fixtures/         # real env.sh and krknctl-input.json from krkn-hub scenarios
 website-template/   # the param-table shortcode and the doc-sync workflow (see its own README)

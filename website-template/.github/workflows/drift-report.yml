@@ -1,0 +1,64 @@
+name: Docs drift report
+
+# Weekly, report-only scan of parameter drift for the krkn-hub and krknctl sources.
+# Posts or updates one rolling docs-drift issue with a checklist per scenario, each
+# finding linking the exact file and a suggested fix. Opens no PRs. Fixing is done
+# by commenting /fix <scenario> on the issue, which drives the Doc Sync workflow.
+#
+# Plain workflow rather than gh-aw: the report is derived from the sources with no
+# judgement involved, so there is nothing for an agent to decide.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout website
+        uses: actions/checkout@v4
+
+      - name: Checkout krkn-hub (per-scenario and global env.sh)
+        uses: actions/checkout@v4
+        with:
+          repository: krkn-chaos/krkn-hub
+          path: krkn-hub
+
+      # Global krknctl params live in krkn, not krkn-hub. Without this the bot
+      # refuses to run rather than silently emitting a degraded skip list.
+      - name: Checkout krkn (global krknctl params)
+        uses: actions/checkout@v4
+        with:
+          repository: krkn-chaos/krkn
+          path: krkn
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install docs bot
+        run: pip install "git+https://github.com/krkn-chaos/docsync-bot.git@main"
+
+      # Post the issue as the krkn-docs-bot app, not github-actions[bot], so the
+      # rolling issue has a stable author and no PAT is involved.
+      - name: Mint app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Scan and post the docs-drift issue
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          python -m bot.drift_scanner \
+            --krkn-hub krkn-hub \
+            --krkn krkn \
+            --website . \
+            --repo "${{ github.repository }}"
