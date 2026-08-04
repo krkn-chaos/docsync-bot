@@ -196,6 +196,9 @@ params:
     rel = site.page("d", "d", "krkn-hub")
     assert site.build().returncode == 0
     assert cells(site.html(rel), row=0)[2] == "node-role.kubernetes.io/worker"
+    # An explicit empty default is not the same as no default, which renders "-".
+    # UUID=${UUID:=""} is a real param that defaults to empty.
+    assert cells(site.html(rel), row=1)[2] == '""'
     assert cells(site.html(rel), row=2)[2] == '"x"'
 
 

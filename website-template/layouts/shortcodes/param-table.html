@@ -44,8 +44,11 @@
   </thead>
   <tbody>
     {{- range $rows }}
-    {{/* isset, not with: `with` reads a 0 default as absent and prints a dash. */}}
-    {{- $d := "" -}}{{- if isset . "default" }}{{ $d = printf "%v" (index . "default") }}{{ end -}}
+    {{/* Presence is tracked apart from value. A param with no default and one
+         that defaults to empty string are different things, and `with` would
+         also read a 0 default as absent. */}}
+    {{- $hasDefault := isset . "default" -}}
+    {{- $d := "" -}}{{- if $hasDefault }}{{ $d = printf "%v" (index . "default") }}{{ end -}}
     <tr>
       <td><code>{{ $prefix }}{{ index . "name" }}</code></td>
       <td>{{ index . "description" | markdownify }}</td>
@@ -54,7 +57,9 @@
       {{/* Long defaults (TELEMETRY_FILTER_PATTERN is a ~250 char regex array)
            would wreck the layout, so show the head and keep the rest on hover. */}}
       {{- if $showDefault }}<td{{ if gt (len $d) 60 }} title="{{ $d }}"{{ end }}>
-        {{- if eq $d "" }}-{{ else if gt (len $d) 60 }}<code>{{ substr $d 0 60 }}...</code>
+        {{- if not $hasDefault }}-
+        {{- else if eq $d "" }}<code>""</code>
+        {{- else if gt (len $d) 60 }}<code>{{ substr $d 0 60 }}...</code>
         {{- else }}<code>{{ $d }}</code>{{ end -}}
       </td>{{ end }}
       {{- if $showRequired }}<td>{{ if isset . "required" }}{{ index . "required" }}{{ else }}-{{ end }}</td>{{ end }}
