@@ -78,16 +78,52 @@ def emit(website_root, krkn_hub_root, krkn_root, source_ref="HEAD"):
     return written
 
 
+_PAGES = (
+    ("krknctl", "content/en/docs/scenarios/all-scenario-env-krknctl.md"),
+    ("krkn-hub", "content/en/docs/scenarios/all-scenario-env.md"),
+)
+
+
+def scaffold(website_root, krkn_hub_root, krkn_root):
+    """Replace the hand-written tables on the two global pages with group-filtered
+    param-table calls. Returns a report line per table.
+    The group comes from each table's own rows, so no marker or heading map is
+    needed. A table whose rows span groups, or whose group is claimed by another
+    table on the same page, is left alone rather than guessed at."""
+    from bot.scaffold import inject_global_shortcodes
+
+    ctl, env = build_groups(krkn_hub_root, krkn_root)
+    by_source = {"krknctl": ctl, "krkn-hub": env}
+    report = []
+    for source, rel in _PAGES:
+        page = Path(website_root) / rel
+        if not page.exists():
+            continue
+        text = page.read_text(encoding="utf-8")
+        out, lines = inject_global_shortcodes(
+            text, source, {r.name: r.group for r in by_source[source]})
+        if out != text:
+            page.write_text(out, encoding="utf-8")
+        report += [f"{Path(rel).name}: {line}" for line in lines]
+    return report
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Generate global parameter data files")
     ap.add_argument("--krkn-hub", required=True, help="Path to the krkn-hub repo root")
     ap.add_argument("--krkn", required=True, help="Path to the krkn repo root")
     ap.add_argument("--website", default=".", help="Path to the website repo root")
     ap.add_argument("--source-ref", default="HEAD")
+    ap.add_argument("--scaffold", action="store_true",
+                    help="Also replace the tables on the two global pages with "
+                         "param-table calls")
     args = ap.parse_args()
     require_sources(args.krkn_hub, args.krkn)
     for path in emit(args.website, args.krkn_hub, args.krkn, args.source_ref):
         print(path)
+    if args.scaffold:
+        for line in scaffold(args.website, args.krkn_hub, args.krkn):
+            print(line)
 
 
 if __name__ == "__main__":

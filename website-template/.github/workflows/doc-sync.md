@@ -81,7 +81,7 @@ steps:
         # krkn-hub/env.sh and krkn/containers/krknctl-input.json, so they have
         # their own entry point rather than a scenario folder to read.
         if [ "$scenario" = "globals" ]; then
-          python3 -m bot.globals --krkn-hub "$KRKN_HUB_PATH" --krkn "$KRKN_PATH"
+          python3 -m bot.globals --krkn-hub "$KRKN_HUB_PATH" --krkn "$KRKN_PATH" --scaffold
         else
           python3 -m bot.doc_bot --scenario "$scenario" --scaffold
         fi

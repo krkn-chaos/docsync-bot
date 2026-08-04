@@ -1,7 +1,11 @@
 import re
+from collections import Counter
 from pathlib import Path
 
 _ID_RE = re.compile(r'<krkn-hub-scenario\s+id="([^"]+)"')
+
+# Kept local rather than imported from bot.globals, which imports this module.
+GLOBAL_SCENARIO = "globals"
 
 
 def _is_table_separator(line):
@@ -29,6 +33,89 @@ def inject_shortcode(text, scenario, source):
         end = len(lines)
     header = sep - 1
     return "".join(lines[:header] + [call + "\n"] + lines[end:])
+
+
+def _first_cell(line):
+    """Parameter name from a table row, or None. Handles both page styles:
+    "| `--flag` | ... |" on the krknctl page and "`NAME` | ... " on the krkn-hub
+    page. A CLI flag's leading -- is stripped so it matches the source name."""
+    parts = line.strip().strip("|").split("|")
+    if not parts:
+        return None
+    cell = parts[0].strip().strip("`").strip()
+    if cell.startswith("--"):
+        cell = cell[2:]
+    return cell or None
+
+
+def _tables(lines):
+    """(header_index, end_index, row_indexes) for each markdown table."""
+    out, i = [], 0
+    while i < len(lines):
+        if _is_table_separator(lines[i]) and i > 0 and "|" in lines[i - 1]:
+            end = i + 1
+            while end < len(lines) and "|" in lines[end]:
+                end += 1
+            out.append((i - 1, end, list(range(i + 1, end))))
+            i = end
+        else:
+            i += 1
+    return out
+
+
+def inject_global_shortcodes(text, source, name_to_group):
+    """Replace each parameter table on a global page with a group-filtered
+    param-table call, deriving the group from the table's own rows.
+    Returns (new_text, report). A table is replaced only when every row resolves
+    to the same known group and exactly one table on the page claims that group.
+    Two sections can draw from one group: Kraken and Tunings both take from
+    "general". Injecting either would pull the other's params in while that
+    section still lists them, so a split group is left alone on every table."""
+    lines = text.splitlines(keepends=True)
+    report, edits = [], []
+
+    # Pass 1: resolve every table to a group, or to a reason it cannot be.
+    resolved = []
+    for header, end, rows in _tables(lines):
+        if "param-table" in "".join(lines[header:end]):
+            continue
+        names = [n for n in (_first_cell(lines[r]) for r in rows) if n]
+        if not names:
+            continue
+        unknown = [n for n in names if n not in name_to_group]
+        if unknown:
+            resolved.append((header, end, names, None,
+                             f"unknown params, left alone: {', '.join(unknown[:4])}"))
+            continue
+        groups = {name_to_group[n] for n in names}
+        if len(groups) != 1:
+            resolved.append((header, end, names, None,
+                             f"mixed groups {sorted(groups)}, left alone"))
+            continue
+        resolved.append((header, end, names, groups.pop(), None))
+
+    claims = Counter(g for _, _, _, g, _ in resolved if g)
+
+    # Pass 2: inject only the groups exactly one table claims.
+    for header, end, names, group, reason in resolved:
+        if reason:
+            report.append(reason)
+            continue
+        if claims[group] > 1:
+            report.append(f"group {group} split across {claims[group]} sections, "
+                          "left alone to avoid showing params twice")
+            continue
+        # krknctl stores bare flag names but a reader types --telemetry-enabled.
+        # krkn-hub params are env vars and take no prefix.
+        prefix = ' prefix="--"' if source == "krknctl" else ""
+        call = (f'{{{{< param-table scenario="{GLOBAL_SCENARIO}" '
+                f'source="{source}" group="{group}"{prefix} >}}}}\n')
+        edits.append((header, end, call))
+        report.append(f"{group}: replaced {len(names)} rows")
+
+    for header, end, call in reversed(edits):
+        lines[header:end] = [call]
+    return "".join(lines), report
 
 
 def _find_scenario_dir(website_root, scenario):

@@ -122,6 +122,36 @@ def test_a_source_description_change_reaches_the_data_file(tmp_path):
     assert _rows(web, "krknctl")[0]["description"] == "Enables Cerberus Support"
 
 
+PAGE = """## Cerberus
+
+Blurb.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--cerberus-enabled` | Enables it | False |
+"""
+
+
+def test_scaffold_injects_into_the_global_pages(tmp_path):
+    hub, krkn = _sources(tmp_path, "", CTL)
+    web = tmp_path / "web"
+    d = web / "content/en/docs/scenarios"
+    d.mkdir(parents=True)
+    (d / "all-scenario-env-krknctl.md").write_text(PAGE, encoding="utf-8")
+    report = g.scaffold(web, hub, krkn)
+    out = (d / "all-scenario-env-krknctl.md").read_text(encoding="utf-8")
+    assert 'group="cerberus"' in out
+    assert "Blurb." in out, "prose must survive"
+    assert any("cerberus" in r for r in report), report
+
+
+def test_scaffold_tolerates_a_missing_page(tmp_path):
+    hub, krkn = _sources(tmp_path, "", CTL)
+    web = tmp_path / "web"
+    (web / "content/en/docs/scenarios").mkdir(parents=True)
+    assert g.scaffold(web, hub, krkn) == []
+
+
 def test_regenerating_twice_is_byte_identical(tmp_path):
     hub, krkn = _sources(tmp_path, CERBERUS, CTL)
     web = tmp_path / "web"
