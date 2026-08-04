@@ -1,37 +1,56 @@
-name: Trigger docs sync on merged PR
+name: Trigger docs sync
 
-# When a PR that changes a scenario's env.sh or krknctl-input.json is merged,
-# tell the website's Doc Sync workflow to regenerate that scenario's docs.
-# Uses a GitHub App token scoped to website_2 (handover-friendly: no personal PAT).
+# When a scenario's env.sh or krknctl-input.json lands on main, tell the website's
+# Doc Sync workflow to regenerate that scenario's docs. Uses a GitHub App token
+# scoped to website_2 (handover-friendly: no personal PAT).
+#
+# push, not pull_request: a PR from a fork gets no repository secrets.
 
 on:
-  pull_request:
-    types: [closed]
+  push:
+    branches: [main]
+    paths:
+      - env.sh
+      - '*/env.sh'
+      - '*/krknctl-input.json'
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
   dispatch:
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
       - name: Find the changed scenarios
         id: scenario
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
         run: |
-          files=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename')
-          # A single PR can touch several scenarios; sync every one, not just the first.
-          scenarios=$(echo "$files" | grep -E '^[^/]+/(env\.sh|krknctl-input\.json)$' | cut -d/ -f1 | sort -u | tr '\n' ' ')
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "Branch created, nothing to compare against."
+            exit 0
+          fi
+          files=$(gh api "repos/$REPO/compare/$BEFORE...$AFTER" --jq '.files[].filename')
+          # A single push can touch several scenarios; sync every one, not just the first.
+          scenarios=$(echo "$files" | grep -E '^[^/]+/(env\.sh|krknctl-input\.json)$' \
+            | cut -d/ -f1 | sort -u | tr '\n' ' ')
+          # The root env.sh holds the krkn-hub global params, generated under the
+          # "globals" scenario rather than from a directory.
+          if echo "$files" | grep -qx 'env\.sh'; then
+            scenarios="globals $scenarios"
+          fi
+          scenarios=$(echo $scenarios | tr -s ' ')
           if [ -n "$scenarios" ]; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "names=$scenarios" >> "$GITHUB_OUTPUT"
-            echo "Changed scenarios: $scenarios"
+            echo "Changed: $scenarios"
           else
             echo "relevant=false" >> "$GITHUB_OUTPUT"
-            echo "No scenario env.sh / krknctl-input.json changed; skipping."
+            echo "No env.sh / krknctl-input.json changed; skipping."
           fi
 
       - name: Mint a website_2-scoped app token
