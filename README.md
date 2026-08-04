@@ -53,6 +53,5 @@ pytest
 ## Not yet wired (TODO)
 
 - krkn `config.yaml` as a third source
-- drift scan on a schedule
-- the `/refine` and `/resync` commands
+- the `/refine` command
 

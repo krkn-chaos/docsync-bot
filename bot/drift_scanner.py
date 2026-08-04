@@ -233,9 +233,9 @@ def _detail_block(fs) -> list[str]:
     for f in fs:
         by_file.setdefault(f.source_file, []).append(f)
 
-    lines = ["", "<details>", f"<summary>{len(fs)} sources, click to expand</summary>", ""]
+    lines = ["", "<details>", f"<summary>{len(fs)} findings, click to expand</summary>", ""]
     for source_file, group in sorted(by_file.items()):
-        lines += [f"Source: {source_file}", "", "| Group | Params | Names |", "| --- | --- | --- |"]
+        lines += [f"Source: {source_file}", "", "| Source | Params | Names |", "| --- | --- | --- |"]
         for f in sorted(group, key=lambda x: x.source):
             if f.kind == "missing-table":
                 names = f.new or ""
@@ -251,18 +251,18 @@ def _detail_block(fs) -> list[str]:
     return lines
 
 
-def _ticked_scenarios(prev_body: str) -> set[str]:
-    """Scenario ids whose checkbox was ticked in the previous issue body. Keyed on
-    the <!-- drift:scn --> marker so a tick applies to that scenario only, never to
-    other scenarios that happen to share the same summary text."""
-    ticked, cur = set(), None
+def _ticked_scenarios(prev_body: str) -> dict[str, str]:
+    """Scenario id -> the label it was ticked against, for each ticked checkbox in
+    the previous issue body. Keyed on the <!-- drift:scn --> marker so a tick
+    applies to that scenario only, never to another with the same label."""
+    ticked, cur = {}, None
     for line in prev_body.splitlines():
         m = re.match(r"<!-- drift:(\S+) -->", line)
         if m:
             cur = m.group(1)
         elif cur and line.startswith("- ["):
-            if line.startswith("- [x]"):
-                ticked.add(cur)
+            if line.startswith("- [x] "):
+                ticked[cur] = line[len("- [x] "):].strip()
             cur = None
     return ticked
 
@@ -283,11 +283,13 @@ def format_report(findings, prev_body="") -> str:
              "Tick a box when handled, or comment `/fix <scenario>` for a draft PR.", ""]
     for scn in sorted(by_scn):
         fs = by_scn[scn]
-        summary = _scenario_summary(fs)
-        box = "x" if scn in ticked else " "
+        label = f"{_scenario_summary(fs)}. Fix with `/fix {scn}`"
+        # A tick means "I handled what this said". New drift changes the label,
+        # so it comes back unticked rather than hiding behind the old tick.
+        box = "x" if ticked.get(scn) == label else " "
         lines.append(f"<!-- drift:{scn} -->")
         lines.append(f"#### {scn}")
-        lines.append(f"- [{box}] {summary}. Fix with `/fix {scn}`")
+        lines.append(f"- [{box}] {label}")
         lines.extend(_detail_block(fs))
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"

@@ -95,6 +95,19 @@ def test_tick_preserved_per_scenario_not_by_shared_text():
     assert _box(second, "beta") == "- [ ]"   # shared text must NOT tick beta
 
 
+def test_a_tick_clears_when_new_drift_appears():
+    """A tick says the drift it was next to has been handled. Later findings must
+    not hide behind it."""
+    a = ds.Finding("alpha", "krkn-hub", "stale", "X", old="1", new="2",
+                   source_file="u", table_file="t")
+    prev = ds.format_report([a]).replace("- [ ]", "- [x]", 1)
+    assert _box(ds.format_report([a], prev_body=prev), "alpha") == "- [x]"
+
+    b = ds.Finding("alpha", "krknctl", "stale", "Y", old="1", new="2",
+                   source_file="u", table_file="t")
+    assert _box(ds.format_report([a, b], prev_body=prev), "alpha") == "- [ ]"
+
+
 def test_empty_findings_all_clear():
     assert ds.format_report([]) == "### Docs drift report\n\nNo drift found.\n"
 
