@@ -73,12 +73,14 @@ class Site:
         d.mkdir(parents=True, exist_ok=True)
         (d / f"{source}.yaml").write_text(yaml_text, encoding="utf-8")
 
-    def page(self, slug: str, scenario: str, source: str) -> str:
+    def page(self, slug: str, scenario: str, source: str, **attrs) -> str:
+        """attrs become extra shortcode arguments, e.g. group="cerberus"."""
+        extra = "".join(f' {k}="{v}"' for k, v in attrs.items())
         body = (
             "---\n"
             f"title: {slug}\n"
             "---\n\n"
-            f'{{{{< param-table scenario="{scenario}" source="{source}" >}}}}\n'
+            f'{{{{< param-table scenario="{scenario}" source="{source}"{extra} >}}}}\n'
         )
         (self.root / "content" / f"{slug}.md").write_text(body, encoding="utf-8")
         return f"{slug}/index.html"

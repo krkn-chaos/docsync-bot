@@ -120,12 +120,13 @@ params:
     rel = site.page("m", "m", "krkn-hub")
     assert site.build().returncode == 0
     assert headers(site.html(rel)) == ["Parameter", "Description", "Type", "Default"]
-    assert cells(site.html(rel), row=1) == ["B", "Has neither.", "", ""]
+    # A dash, not a blank: an empty cell reads as an oversight in the table.
+    assert cells(site.html(rel), row=1) == ["B", "Has neither.", "-", "-"]
 
 
 # krknctl possible_values and required columns
 
-def test_possible_values_comma_joined(site):
+def test_possible_values_slash_joined(site):
     site.data("k", "krknctl", """\
 params:
   - name: CLOUD_TYPE
@@ -140,8 +141,9 @@ params:
     assert headers(site.html(rel)) == [
         "Parameter", "Description", "Type", "Possible Values", "Default", "Required",
     ]
+    # Slash-joined: a comma reads as part of the value when a value contains one.
     assert cells(site.html(rel)) == [
-        "CLOUD_TYPE", "Cloud platform.", "enum", "aws, gcp, azure", "aws", "true",
+        "CLOUD_TYPE", "Cloud platform.", "enum", "aws/gcp/azure", "aws", "true",
     ]
 
 
@@ -194,7 +196,58 @@ params:
     rel = site.page("d", "d", "krkn-hub")
     assert site.build().returncode == 0
     assert cells(site.html(rel), row=0)[2] == "node-role.kubernetes.io/worker"
+    # An explicit empty default is not the same as no default, which renders "-".
+    # UUID=${UUID:=""} is a real param that defaults to empty.
+    assert cells(site.html(rel), row=1)[2] == '""'
     assert cells(site.html(rel), row=2)[2] == '"x"'
+
+
+# the group filter and the flag prefix, used by the two global pages
+
+GROUPED = """\
+params:
+  - name: cerberus-enabled
+    description: Enables it.
+    group: cerberus
+    type: enum
+    possible_values: [True, False]
+  - name: uuid
+    description: Run id.
+    group: general
+"""
+
+
+def test_group_selects_only_its_own_rows(site):
+    site.data("globals", "krknctl", GROUPED)
+    rel = site.page("g", "globals", "krknctl", group="cerberus")
+    assert site.build().returncode == 0
+    soup = BeautifulSoup(site.html(rel), "html.parser")
+    assert len(soup.select("table.krkn-param-table tbody tr")) == 1
+    assert cells(site.html(rel))[0] == "cerberus-enabled"
+
+
+def test_a_group_does_not_inherit_a_sibling_group_column(site):
+    """general has no possible_values, so filtering must happen before the
+    columns are worked out or it gains an empty Possible Values column."""
+    site.data("globals", "krknctl", GROUPED)
+    rel = site.page("g2", "globals", "krknctl", group="general")
+    assert site.build().returncode == 0
+    assert headers(site.html(rel)) == ["Parameter", "Description"]
+
+
+def test_prefix_is_prepended_to_the_name(site):
+    site.data("globals", "krknctl", GROUPED)
+    rel = site.page("g3", "globals", "krknctl", group="general", prefix="--")
+    assert site.build().returncode == 0
+    assert cells(site.html(rel))[0] == "--uuid"
+
+
+def test_a_group_with_no_rows_fails_the_build(site):
+    site.data("globals", "krknctl", GROUPED)
+    site.page("g4", "globals", "krknctl", group="nosuchgroup")
+    proc = site.build()
+    assert proc.returncode != 0
+    assert 'group "nosuchgroup" has no params' in proc.stderr
 
 
 # the shipped example data files must render cleanly

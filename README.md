@@ -20,11 +20,18 @@ bot/                # the Python package
   descriptions.py   # description priority (source > existing file > LLM)
   emitter.py        # writes and reads data/params/<scenario>/<source>.yaml
   scaffold.py       # id-mapping, new-page creation, shortcode injection
-  doc_bot.py        # entrypoint
+  doc_bot.py        # entrypoint, one scenario at a time
+  globals.py        # entrypoint for the two global parameter pages
+  drift_scanner.py  # entrypoint, report-only: sources vs committed tables
+  github_client.py  # opens and edits the rolling docs-drift issue
 tests/              # pytest, also holds the shortcode Hugo harness from the template PR (they coexist)
   fixtures/         # real env.sh and krknctl-input.json from krkn-hub scenarios
-website-template/   # the param-table shortcode (see its own README)
+website-template/   # the param-table shortcode and the doc-sync workflow (see its own README)
+krkn-hub-template/  # trigger workflow for krkn-hub (see its own README)
+krkn-template/      # trigger workflow for krkn (see its own README)
 ```
+
+Two entry points because the sources have two shapes. Per-scenario params live in one krkn-hub directory per scenario, so `doc_bot` takes a scenario name. Global params live in `krkn-hub/env.sh` and `krkn/containers/krknctl-input.json`, with no scenario directory to read, so `globals` takes the two repo roots.
 
 The `tests/fixtures/` files are real `env.sh` and `krknctl-input.json` taken from krkn-hub scenarios, used as golden inputs so the parser is tested against the actual formats and their quirks (nested braces, malformed defaults, the full krknctl schema), not simplified toy data.
 
@@ -32,13 +39,19 @@ The `tests/fixtures/` files are real `env.sh` and `krknctl-input.json` taken fro
 
 ```
 pip install -e .
-python -m bot.doc_bot --scenario node-scenarios --scaffold
+
+# Both sources are required, even for one scenario: the bot builds a scenario
+# table by leaving out the global params, and those come from krkn.
+git clone --depth 1 https://github.com/krkn-chaos/krkn-hub.git
+git clone --depth 1 https://github.com/krkn-chaos/krkn.git
+
+KRKN_HUB_PATH=krkn-hub KRKN_PATH=krkn \
+  python -m bot.doc_bot --scenario node-scenarios --scaffold
 pytest
 ```
 
 ## Not yet wired (TODO)
 
 - krkn `config.yaml` as a third source
-- drift scan on a schedule
-- the `/refine` and `/resync` commands
+- the `/refine` command
 

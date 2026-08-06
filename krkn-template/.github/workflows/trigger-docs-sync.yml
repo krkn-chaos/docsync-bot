@@ -1,0 +1,39 @@
+name: Trigger docs sync
+
+# krkn owns the global parameters, in containers/krknctl-input.json. When that
+# file lands on main, tell the website's Doc Sync workflow to regenerate the two
+# global parameter pages. Uses a GitHub App token scoped to the website, no PAT.
+#
+# push, not pull_request: a PR from a fork gets no repository secrets.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - containers/krknctl-input.json
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint a website-scoped app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: StrikerEureka34
+          repositories: website_2
+
+      - name: Dispatch doc-sync on the website
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          # One file, one target: "globals" routes to the bot's global entry
+          # point rather than to a scenario directory.
+          gh workflow run doc-sync.lock.yml \
+            --repo StrikerEureka34/website_2 \
+            -f scenarios="globals"
