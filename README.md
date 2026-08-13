@@ -17,9 +17,11 @@ Project issue: [krkn-chaos/website#320](https://github.com/krkn-chaos/website/is
 ```
 bot/                # the Python package
   parser.py         # env.sh + krknctl-input.json parsers
-  descriptions.py   # description priority (source > existing file > LLM)
+  descriptions.py   # description priority, five rungs (see below)
+  describe.py       # the model rung: calls, validates and rejects
   emitter.py        # writes and reads data/params/<scenario>/<source>.yaml
   scaffold.py       # id-mapping, new-page creation, shortcode injection
+  report.py         # commit-message sections for descriptions not taken from source
   doc_bot.py        # entrypoint, one scenario at a time
   globals.py        # entrypoint for the two global parameter pages
   drift_scanner.py  # entrypoint, report-only: sources vs committed tables
@@ -30,6 +32,11 @@ website-template/   # the param-table shortcode and the doc-sync workflow (see i
 krkn-hub-template/  # trigger workflow for krkn-hub (see its own README)
 krkn-template/      # trigger workflow for krkn (see its own README)
 ```
+
+Descriptions resolve in order: the source file, then the published table the
+shortcode is about to replace, then the existing data file, then the other
+source, then the model. Everything below the first rung is reported, so a cell
+the bot could not fill from source is visible rather than silent.
 
 Two entry points because the sources have two shapes. Per-scenario params live in one krkn-hub directory per scenario, so `doc_bot` takes a scenario name. Global params live in `krkn-hub/env.sh` and `krkn/containers/krknctl-input.json`, with no scenario directory to read, so `globals` takes the two repo roots.
 
@@ -49,6 +56,10 @@ KRKN_HUB_PATH=krkn-hub KRKN_PATH=krkn \
   python -m bot.doc_bot --scenario node-scenarios --scaffold
 pytest
 ```
+
+The model rung needs one secret, `LLM_API_KEY`. The endpoint and model are built
+in, so nothing else is configured in CI. Without the key the run still completes:
+the affected cells stay empty and the report says the key was unset.
 
 ## Not yet wired (TODO)
 

@@ -27,22 +27,66 @@ def test_existing_is_the_fallback_when_the_source_says_nothing():
 def test_llm_only_for_params_nothing_describes():
     recs = [ParamRecord(name="SRC", description="from src"),
             ParamRecord(name="NEW")]
-    out, called = resolve_descriptions("scn", recs, {}, fake_llm)
+    out, gaps = resolve_descriptions("scn", recs, {}, fake_llm)
     assert out["SRC"] == "from src"
     assert out["NEW"] == "LLM desc for NEW."
-    assert called == ["NEW"]
+    assert gaps == [("NEW", "llm", "LLM desc for NEW.")]
+    assert recs[1].description_source == "llm"
 
 
 def test_no_llm_call_when_all_resolved():
     recs = [ParamRecord(name="A", description="d")]
-    out, called = resolve_descriptions("scn", recs, {}, fake_llm)
-    assert called == []
+    out, gaps = resolve_descriptions("scn", recs, {}, fake_llm)
+    assert gaps == []
 
 
 def test_an_undescribed_param_is_left_blank_not_papered_over():
     """The old fallback wrote "Configures port.", which reads as finished and
     says nothing. An empty cell shows a human there is work to do."""
     recs = [ParamRecord(name="PORT")]
-    out, called = resolve_descriptions("scn", recs, {}, lambda s, n: {})
+    out, gaps = resolve_descriptions("scn", recs, {}, lambda s, n: {})
     assert out["PORT"] == ""
-    assert called == ["PORT"]
+    assert gaps == [("PORT", "", "no description in any source and no published row")]
+
+
+def test_a_published_description_is_carried_when_no_source_has_one():
+    """node-scenarios/VERIFY_SESSION: the page has wording, no source does."""
+    recs = [ParamRecord(name="VERIFY_SESSION")]
+    out, gaps = resolve_descriptions("scn", recs, {}, lambda s, n: {},
+                                     published={"VERIFY_SESSION": "Verify the SSH session"})
+    assert out["VERIFY_SESSION"] == "Verify the SSH session"
+    assert recs[0].description_source == "published-table"
+    assert gaps == [("VERIFY_SESSION", "published-table", "Verify the SSH session")]
+
+
+def test_a_source_description_still_wins_over_the_published_one():
+    """CLOUD_TYPE's published list omits azure and gcp. The source is right."""
+    recs = [ParamRecord(name="CLOUD_TYPE", description="aws, azure, gcp")]
+    out, gaps = resolve_descriptions("scn", recs, {}, fake_llm,
+                                     published={"CLOUD_TYPE": "aws, vmware"})
+    assert out["CLOUD_TYPE"] == "aws, azure, gcp"
+    assert gaps == []
+
+
+def test_the_published_page_wins_over_the_existing_file():
+    """Both only coexist while a page is still being migrated. The page is the
+    human-written one, and the file would otherwise shadow it forever."""
+    recs = [ParamRecord(name="X")]
+    out, _ = resolve_descriptions("scn", recs, {"X": "from yaml"}, fake_llm,
+                                  published={"X": "from page"})
+    assert out["X"] == "from page"
+
+
+def test_the_existing_file_wins_over_the_other_source():
+    """Once the page is converted its prose survives only in the file, so a
+    borrow must not overwrite it on the next run."""
+    recs = [ParamRecord(name="X", borrowed_description="from krknctl")]
+    out, _ = resolve_descriptions("scn", recs, {"X": "from yaml"}, fake_llm)
+    assert out["X"] == "from yaml"
+
+
+def test_the_published_table_is_tried_before_the_llm():
+    recs = [ParamRecord(name="X")]
+    out, gaps = resolve_descriptions("scn", recs, {}, fake_llm,
+                                     published={"X": "from page"})
+    assert out["X"] == "from page"

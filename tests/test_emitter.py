@@ -1,6 +1,6 @@
 import yaml
 from bot.parser import ParamRecord
-from bot.emitter import emit_data_text, load_descriptions
+from bot.emitter import emit_data_text, load_descriptions, load_previous
 
 
 def test_krkn_hub_omits_absent_optional_fields():
@@ -14,10 +14,10 @@ def test_krkn_hub_omits_absent_optional_fields():
     assert data["source_repo"] == "krkn-hub"
     assert data["source_ref"] == "abc123"
     assert data["params"][0] == {
-        "name": "ACTION", "description": "Action to run.", "type": "enum", "default": "node_stop",
+        "name": "ACTION", "description": "Action to run.", "type": "enum",
+        "default": "node_stop", "required": False,
     }
     assert "default" not in data["params"][1]
-    assert "required" not in data["params"][0]
 
 
 def test_group_is_emitted_when_present():
@@ -45,6 +45,50 @@ def test_krknctl_includes_required_and_possible_values():
     assert p["required"] is True
 
 
+def test_krknctl_rows_carry_the_cli_flag():
+    """The krknctl page lists flags, but name stays the env var so the drift
+    scanner and the skip list keep matching on it."""
+    recs = [ParamRecord(name="ACTION", flag="action")]
+    p = yaml.safe_load(emit_data_text(
+        "node-scenarios", "krknctl", recs, {"ACTION": "Act."}, "r"))["params"][0]
+    assert p["name"] == "ACTION"
+    assert p["flag"] == "action"
+
+
+def test_krkn_hub_rows_carry_no_flag():
+    """env.sh params have no CLI flag and must not gain an empty key."""
+    recs = [ParamRecord(name="ACTION", flag="action")]
+    p = yaml.safe_load(emit_data_text(
+        "node-scenarios", "krkn-hub", recs, {"ACTION": "Act."}, "r"))["params"][0]
+    assert "flag" not in p
+
+
+def test_a_flag_identical_to_the_name_is_not_duplicated():
+    """globals swaps the flag into name and leaves flag set, so all 78 global
+    rows would gain a key holding the same string."""
+    recs = [ParamRecord(name="action", flag="action")]
+    p = yaml.safe_load(emit_data_text(
+        "globals", "krknctl", recs, {"action": "Act."}, "r"))["params"][0]
+    assert "flag" not in p
+
+
+def test_a_secret_param_is_marked_in_the_data():
+    """The shortcode renders this as "string (secret)"."""
+    recs = [ParamRecord(name="BMC_PASSWORD", flag="bmc-password",
+                        type="string", secret=True)]
+    p = yaml.safe_load(emit_data_text(
+        "node-scenarios", "krknctl", recs, {"BMC_PASSWORD": "IPMI password."},
+        "r"))["params"][0]
+    assert p["secret"] is True
+
+
+def test_a_non_secret_param_gains_no_key():
+    recs = [ParamRecord(name="ACTION", flag="action", type="string")]
+    p = yaml.safe_load(emit_data_text(
+        "node-scenarios", "krknctl", recs, {"ACTION": "Act."}, "r"))["params"][0]
+    assert "secret" not in p
+
+
 def test_output_is_deterministic():
     recs = [ParamRecord(name="A", default="1", type="number")]
     descs = {"A": "An a."}
@@ -65,3 +109,57 @@ def test_load_descriptions_round_trips_what_the_emitter_wrote(tmp_path):
 
 def test_load_descriptions_of_a_missing_file_is_empty(tmp_path):
     assert load_descriptions(tmp_path / "nope.yaml") == {}
+
+
+def test_provenance_is_written_for_a_non_source_description():
+    recs = [ParamRecord(name="X", description_source="published-table")]
+    p = yaml.safe_load(emit_data_text(
+        "s", "krkn-hub", recs, {"X": "Text."}, "r"))["params"][0]
+    assert p["description_source"] == "published-table"
+
+
+def test_a_source_description_records_no_provenance():
+    """The field marks only fallbacks, so one grep finds every description that
+    did not come from a source file."""
+    for src in (None, "env-comment"):
+        recs = [ParamRecord(name="X", description_source=src)]
+        p = yaml.safe_load(emit_data_text(
+            "s", "krkn-hub", recs, {"X": "Text."}, "r"))["params"][0]
+        assert "description_source" not in p
+
+
+def test_a_borrow_from_the_other_source_is_recorded():
+    """Unmarked, the next run cannot tell it from curated prose, and keeping it
+    would stop a published table or a better krknctl line ever replacing it."""
+    recs = [ParamRecord(name="X", description_source="krknctl")]
+    p = yaml.safe_load(emit_data_text(
+        "s", "krkn-hub", recs, {"X": "Text."}, "r"))["params"][0]
+    assert p["description_source"] == "krknctl"
+
+
+def test_the_read_back_returns_type_and_provenance(tmp_path):
+    """The published table is gone by run 2, so what it supplied has to come back
+    from the file or it lasted one commit."""
+    f = tmp_path / "krkn-hub.yaml"
+    f.write_text("params:\n"
+                 "  - name: VERIFY_SESSION\n"
+                 "    description: Verify the SSH session\n"
+                 "    type: string\n"
+                 "    description_source: published-table\n", encoding="utf-8")
+    prev = load_previous(f)
+    assert prev["VERIFY_SESSION"]["description"] == "Verify the SSH session"
+    assert prev["VERIFY_SESSION"]["type"] == "string"
+    assert prev["VERIFY_SESSION"]["description_source"] == "published-table"
+
+
+def test_the_read_back_of_a_missing_file_is_empty(tmp_path):
+    assert load_previous(tmp_path / "nope.yaml") == {}
+
+
+def test_a_required_env_param_is_marked():
+    """export VAR=${VAR} with no body is env.sh's only way to say you must set
+    this. Dropping it published three mandatory pvc-scenario params as optional."""
+    p = yaml.safe_load(emit_data_text(
+        "pvc-scenario", "krkn-hub", [ParamRecord(name="PVC_NAME", required=True)],
+        {"PVC_NAME": "The PVC."}, "r"))["params"][0]
+    assert p["required"] is True

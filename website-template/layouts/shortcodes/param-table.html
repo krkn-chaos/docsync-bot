@@ -37,9 +37,9 @@
       <th>Parameter</th>
       <th>Description</th>
       {{- if $showType }}<th>Type</th>{{ end }}
-      {{- if $showValues }}<th>Possible Values</th>{{ end }}
       {{- if $showDefault }}<th>Default</th>{{ end }}
       {{- if $showRequired }}<th>Required</th>{{ end }}
+      {{- if $showValues }}<th>Possible Values</th>{{ end }}
     </tr>
   </thead>
   <tbody>
@@ -50,10 +50,11 @@
     {{- $hasDefault := isset . "default" -}}
     {{- $d := "" -}}{{- if $hasDefault }}{{ $d = printf "%v" (index . "default") }}{{ end -}}
     <tr>
-      <td><code>{{ $prefix }}{{ index . "name" }}</code></td>
+      {{/* The krknctl pages list CLI flags; name stays the env var in the data
+           so drift_scanner and the skip list keep matching on it. */}}
+      <td><code>{{ $prefix }}{{ if isset . "flag" }}{{ index . "flag" }}{{ else }}{{ index . "name" }}{{ end }}</code></td>
       <td>{{ index . "description" | markdownify }}</td>
-      {{- if $showType }}<td>{{ index . "type" | default "-" }}</td>{{ end }}
-      {{- if $showValues }}<td>{{ with index . "possible_values" }}{{ delimit . "/" }}{{ else }}-{{ end }}</td>{{ end }}
+      {{- if $showType }}<td>{{ index . "type" | default "-" }}{{ if isset . "secret" }} (secret){{ end }}</td>{{ end }}
       {{/* Long defaults (TELEMETRY_FILTER_PATTERN is a ~250 char regex array)
            would wreck the layout, so show the head and keep the rest on hover. */}}
       {{- if $showDefault }}<td{{ if gt (len $d) 60 }} title="{{ $d }}"{{ end }}>
@@ -62,7 +63,10 @@
         {{- else if gt (len $d) 60 }}<code>{{ substr $d 0 60 }}...</code>
         {{- else }}<code>{{ $d }}</code>{{ end -}}
       </td>{{ end }}
-      {{- if $showRequired }}<td>{{ if isset . "required" }}{{ index . "required" }}{{ else }}-{{ end }}</td>{{ end }}
+      {{- if $showRequired }}<td>{{ if isset . "required" }}{{ if index . "required" }}Yes{{ else }}No{{ end }}{{ else }}-{{ end }}</td>{{ end }}
+      {{/* Blank, not a dash: two thirds of rows are non-enum. Default keeps its
+           dash, where it means "no default declared" rather than default: "". */}}
+      {{- if $showValues }}<td>{{ with index . "possible_values" }}{{ delimit . "/" }}{{ end }}</td>{{ end }}
     </tr>
     {{- end }}
   </tbody>
