@@ -16,6 +16,7 @@ import yaml
 
 from bot.parser import (extract_env_params, extract_krknctl_params,
                         build_skip_list, is_global, require_sources)
+from bot.targets import OPERATOR
 
 _MARKER_RE = re.compile(r'<krkn-hub-scenario\s+id="([^"]+)"')
 _SOURCES = (("krkn-hub", "env.sh"), ("krknctl", "krknctl-input.json"))
@@ -26,13 +27,16 @@ _KRKN_URL = "https://github.com/krkn-chaos/krkn/blob/main"
 @dataclass
 class Finding:
     scenario: str
-    source: str            # "krkn-hub" | "krknctl"
-    kind: str              # "missing-table" | "missing" | "stale" | "extra"
+    source: str            # "krkn-hub" | "krknctl" | a CRD section | "page"
+    kind: str              # "missing-table" | "missing" | "stale" | "extra" | "unlinked"
     param: str | None = None
     old: str | None = None
     new: str | None = None
     source_file: str = ""  # full krkn-hub URL
     table_file: str = ""   # website-relative path
+    # The /fix target when it is not the scenario: a CRD plural groups the report
+    # but is not something bot.doc_bot could regenerate.
+    target: str | None = None
 
 
 def find_scenarios(website_root) -> list[str]:
@@ -183,6 +187,13 @@ def _finding_detail(f: Finding) -> str:
         body = f"{f.source}: {f.param} default {f.old} -> {f.new}"
     elif f.kind == "extra":
         body = f"{f.source}: extra {f.param}"
+    elif f.kind == "unlinked":
+        # link_pages only walks _PAGE_LINKS, and which page owns a kind is
+        # editorial, so no command fixes this.
+        return (f"no hand-written page links to this reference. No `/fix` does "
+                f"this: add `{f.scenario}` to `_PAGE_LINKS` in `bot/operator.py`, "
+                f'or put a `{{{{< crd-ref crd="{f.scenario}" >}}}}` call on the '
+                f"page that describes it. page: {f.table_file}")
     else:
         body = f"{f.source}: {f.kind}"
     return f"{body}. source: {f.source_file}, table: {f.table_file}"
@@ -194,20 +205,28 @@ def _scenario_summary(fs) -> str:
     derived from the source and safe to regenerate, while "extra" is the one kind
     where /fix deletes a documented row, so it needs a human."""
     extras = [f for f in fs if f.kind == "extra"]
-    if {f.kind for f in fs} == {"missing-table"}:
+    kinds = {f.kind for f in fs}
+    # Regeneration cannot link a page, so never label this one safe to regenerate.
+    if kinds == {"unlinked"}:
+        return "reference page exists but nothing links to it. **Needs a human**"
+    if kinds == {"missing-table"}:
         n = sum(len(f.new.split(", ")) for f in fs if f.new)
         if len(fs) > 3:
             what = f"{len(fs)} tables missing, {n} params"
         else:
             what = f"no table yet for {', '.join(sorted(f.source for f in fs))}"
     else:
-        n = len(fs)
+        # Counted apart: /fix regenerates tables, never a link.
+        n = sum(1 for f in fs if f.kind != "unlinked")
         what = f"{n} drift item{'s' if n != 1 else ''}"
 
+    if "unlinked" in kinds:
+        what += ", plus a link no `/fix` can add"
     if extras:
         p = f"{len(extras)} param{'s' if len(extras) != 1 else ''}"
         return f"{what}. **Needs a look**: {p} would be removed"
-    return f"{what}. Safe to regenerate"
+    return f"{what}. The rest is safe to regenerate" if "unlinked" in kinds \
+        else f"{what}. Safe to regenerate"
 
 
 def _detail_block(fs) -> list[str]:
@@ -255,6 +274,71 @@ def _ticked_scenarios(prev_body: str) -> dict[str, str]:
     return ticked
 
 
+_CRD_REF_RE = re.compile(r'crd-ref\s+crd="([^"]+)"')
+_OPERATOR_URL = "https://github.com/krkn-chaos/krkn-operator/blob/main"
+
+
+def _linked_crds(website_root) -> set[str]:
+    """Plurals a hand-written operator page points at with a crd-ref call. The
+    reference pages themselves are skipped: they are the link target."""
+    root = Path(website_root) / "content/en/docs/krkn-operator"
+    if not root.exists():
+        return set()
+    return {c for p in root.rglob("*.md") if "api-reference" not in p.parts
+            for c in _CRD_REF_RE.findall(p.read_text(encoding="utf-8"))}
+
+
+def operator_findings(operator_root, website_root, operator_url=_OPERATOR_URL):
+    """CRDs against the committed api-reference tables, plus a reference page
+    nothing links to. Writes nothing, like the rest of the scan."""
+    from bot.crd_parser import crd_columns, crd_fields, crd_meta, load_crd
+    from bot.operator import CRD_GLOB, SECTION, SOURCES
+
+    website_root = Path(website_root)
+    linked, findings = _linked_crds(website_root), []
+    for path in sorted(Path(operator_root).glob(CRD_GLOB)):
+        doc = load_crd(path)
+        plural = crd_meta(doc)["plural"]
+        spec, status = crd_fields(doc, "spec"), crd_fields(doc, "status")
+        by = {"spec": {r.name: r for r in spec}, "status": {r.name: r for r in status}}
+        records = {"spec": spec, "status": status, "columns": crd_columns(doc, by)}
+        source_file = f"{operator_url}/config/crd/bases/{path.name}"
+        for source in SOURCES:
+            if not records[source]:
+                continue
+            table_file = f"data/params/{plural}/{source}.yaml"
+            table = _table_params(website_root / table_file)
+            src = {r.name: (None if r.default is None else str(r.default))
+                   for r in records[source]}
+            if table is None:
+                findings.append(Finding(plural, source, "missing-table",
+                    new=", ".join(sorted(src)), source_file=source_file,
+                    table_file=table_file))
+                continue
+            for name, default in sorted(src.items()):
+                if name not in table:
+                    findings.append(Finding(plural, source, "missing", name,
+                        new=default, source_file=source_file, table_file=table_file))
+                elif table[name] != default:
+                    findings.append(Finding(plural, source, "stale", name,
+                        old=table[name], new=default, source_file=source_file,
+                        table_file=table_file))
+            for name in sorted(table):
+                if name not in src:
+                    findings.append(Finding(plural, source, "extra", name,
+                        old=table[name], source_file=source_file,
+                        table_file=table_file))
+        # Reported, never fixed: which page should link a kind is human knowledge
+        # and lives in no source file.
+        if plural not in linked:
+            findings.append(Finding(plural, "page", "unlinked",
+                source_file=source_file, table_file=f"{SECTION}/{plural}.md"))
+    # Set once so a finding kind added later cannot forget it.
+    for f in findings:
+        f.target = OPERATOR
+    return findings
+
+
 def format_report(findings, prev_body="") -> str:
     """Render Option A, one checkbox per scenario (the unit /fix acts on) with the
     per-source findings as detail bullets. Preserves a ticked checkbox whose label
@@ -271,7 +355,12 @@ def format_report(findings, prev_body="") -> str:
              "Tick a box when handled, or comment `/fix <scenario>` for a draft PR.", ""]
     for scn in sorted(by_scn):
         fs = by_scn[scn]
-        label = f"{_scenario_summary(fs)}. Fix with `/fix {scn}`"
+        # A group of only unlinked findings gets guidance, not a command that
+        # would silently do nothing.
+        target = next((f.target or f.scenario for f in fs if f.kind != "unlinked"), None)
+        label = _scenario_summary(fs)
+        if target:
+            label += f". Fix with `/fix {target}`"
         # A tick means "I handled what this said". New drift changes the label,
         # so it comes back unticked rather than hiding behind the old tick.
         box = "x" if ticked.get(scn) == label else " "
@@ -291,12 +380,16 @@ def main() -> None:
     ap.add_argument("--hub-url", default=_DEFAULT_HUB_URL, help="krkn-hub blob base URL")
     ap.add_argument("--krkn", default="krkn", help="Path to krkn repo root (global params)")
     ap.add_argument("--krkn-url", default=_KRKN_URL, help="krkn blob base URL")
+    ap.add_argument("--operator", help="Path to krkn-operator repo root (CRD source)")
     args = ap.parse_args()
 
     require_sources(args.krkn_hub, args.krkn)
     findings = scan(args.krkn_hub, args.website, hub_url=args.hub_url, krkn_root=args.krkn)
     findings += global_findings(args.krkn_hub, args.krkn, args.website,
                                 hub_url=args.hub_url, krkn_url=args.krkn_url)
+    # Optional: the scan still runs without a krkn-operator checkout.
+    if args.operator:
+        findings += operator_findings(args.operator, args.website)
 
     if not args.repo:
         print(format_report(findings))
