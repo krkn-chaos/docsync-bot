@@ -381,6 +381,7 @@ def main() -> None:
     ap.add_argument("--krkn", default="krkn", help="Path to krkn repo root (global params)")
     ap.add_argument("--krkn-url", default=_KRKN_URL, help="krkn blob base URL")
     ap.add_argument("--operator", help="Path to krkn-operator repo root (CRD source)")
+    ap.add_argument("--operator-url", default=_OPERATOR_URL, help="krkn-operator blob base URL")
     args = ap.parse_args()
 
     require_sources(args.krkn_hub, args.krkn)
@@ -389,7 +390,7 @@ def main() -> None:
                                 hub_url=args.hub_url, krkn_url=args.krkn_url)
     # Optional: the scan still runs without a krkn-operator checkout.
     if args.operator:
-        findings += operator_findings(args.operator, args.website)
+        findings += operator_findings(args.operator, args.website, args.operator_url)
 
     if not args.repo:
         print(format_report(findings))

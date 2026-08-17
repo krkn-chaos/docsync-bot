@@ -69,4 +69,5 @@ jobs:
             --krkn krkn \
             --operator krkn-operator \
             --website . \
-            --repo "${{ github.repository }}"
+            --repo "${{ github.repository }}" \
+            --operator-url https://github.com/krkn-chaos/krkn-operator/blob/main
