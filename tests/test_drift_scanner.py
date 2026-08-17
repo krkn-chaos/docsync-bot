@@ -227,3 +227,50 @@ def test_a_group_missing_from_a_shared_file_is_still_missing_table(tmp_path):
     fs = ds.global_findings(hub, krkn, web)
     ctl = [f for f in fs if f.source == "krknctl-cerberus"]
     assert [f.kind for f in ctl] == ["missing"], "cerberus rows absent -> reported"
+
+
+def _f(scenario, source="krkn-hub", kind="missing", target=None, param="P"):
+    f = ds.Finding(scenario, source, kind, param, source_file="s", table_file="t")
+    f.target = target
+    return f
+
+
+def test_each_source_gets_its_own_collapsed_section():
+    """Every source drifting at once is hundreds of lines, so the reader opens the
+    one they care about instead of scrolling past the rest."""
+    md = ds.format_report([_f("node-scenarios"),
+                           _f("globals"),
+                           _f("krknusers", source="spec", target="operator")])
+    assert "<summary><b>krkn-hub scenarios</b> (1)</summary>" in md
+    assert "<summary><b>Global parameters</b> (1)</summary>" in md
+    assert "<summary><b>krkn-operator CRDs</b> (1)</summary>" in md
+    # Fixed order, so the body only changes when the findings do.
+    assert (md.index("krkn-hub scenarios</b>") < md.index("Global parameters</b>")
+            < md.index("krkn-operator CRDs</b>"))
+
+
+def test_a_source_with_no_drift_gets_no_section():
+    md = ds.format_report([_f("node-scenarios")])
+    assert md.count("<details><summary>") == 1
+    assert "krkn-operator CRDs" not in md
+
+
+def test_a_tick_survives_the_move_into_a_collapsed_section():
+    """The marker, not the layout, is what a tick is keyed on, so regrouping must
+    not silently untick everything a maintainer already handled."""
+    first = ds.format_report([_f("node-scenarios")])
+    ticked = first.replace("- [ ]", "- [x]", 1)
+    again = ds.format_report([_f("node-scenarios")], prev_body=ticked)
+    assert "- [x]" in again
+
+
+def test_a_tick_from_the_old_flat_layout_still_counts():
+    """The rolling issue predates the collapsed sections, so the first run after
+    this change reads a body that has no <details> in it at all."""
+    fs = [_f("node-scenarios")]
+    label = ds.format_report(fs).split("- [ ] ", 1)[1].splitlines()[0]
+    flat = ("### Docs drift report\n\n"
+            "<!-- drift:node-scenarios -->\n"
+            "#### node-scenarios\n"
+            f"- [x] {label}\n")
+    assert "- [x]" in ds.format_report(fs, prev_body=flat)

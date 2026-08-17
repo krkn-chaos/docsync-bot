@@ -339,36 +339,60 @@ def operator_findings(operator_root, website_root, operator_url=_OPERATOR_URL):
     return findings
 
 
+# Fixed order, so the issue body only changes when the findings do.
+_GROUP_ORDER = ("krkn-hub scenarios", "Global parameters", "krkn-operator CRDs")
+
+
+def _group_of(fs) -> str:
+    """Which source a scenario's findings came from, for the collapsed sections."""
+    if any(f.target == OPERATOR for f in fs):
+        return "krkn-operator CRDs"
+    return "Global parameters" if fs[0].scenario == "globals" else "krkn-hub scenarios"
+
+
 def format_report(findings, prev_body="") -> str:
-    """Render Option A, one checkbox per scenario (the unit /fix acts on) with the
-    per-source findings as detail bullets. Preserves a ticked checkbox whose label
-    is unchanged. Emits no em dash characters."""
+    """One checkbox per scenario (the unit /fix acts on), the per-source findings as
+    detail bullets, and the scenarios collapsed under the source they came from:
+    every source drifting at once is otherwise hundreds of lines to scroll.
+    Preserves a ticked checkbox whose label is unchanged. Emits no em dashes."""
     if not findings:
         return "### Docs drift report\n\nNo drift found.\n"
     ticked = _ticked_scenarios(prev_body)
     by_scn = defaultdict(list)
     for f in findings:
         by_scn[f.scenario].append(f)
+    grouped = defaultdict(list)
+    for scn, fs in by_scn.items():
+        grouped[_group_of(fs)].append(scn)
     n = len(by_scn)
     lines = ["### Docs drift report", "",
-             f"Drift in {n} scenario{'s' if n != 1 else ''}. "
-             "Tick a box when handled, or comment `/fix <scenario>` for a draft PR.", ""]
-    for scn in sorted(by_scn):
-        fs = by_scn[scn]
-        # A group of only unlinked findings gets guidance, not a command that
-        # would silently do nothing.
-        target = next((f.target or f.scenario for f in fs if f.kind != "unlinked"), None)
-        label = _scenario_summary(fs)
-        if target:
-            label += f". Fix with `/fix {target}`"
-        # A tick means "I handled what this said". New drift changes the label,
-        # so it comes back unticked rather than hiding behind the old tick.
-        box = "x" if ticked.get(scn) == label else " "
-        lines.append(f"<!-- drift:{scn} -->")
-        lines.append(f"#### {scn}")
-        lines.append(f"- [{box}] {label}")
-        lines.extend(_detail_block(fs))
-        lines.append("")
+             f"Drift in {n} place{'s' if n != 1 else ''}, across "
+             f"{len(grouped)} source{'s' if len(grouped) != 1 else ''}. "
+             "Expand a source, then tick a box when handled or run the `/fix` it names.", ""]
+    for group in _GROUP_ORDER:
+        scns = sorted(grouped.get(group, ()))
+        if not scns:
+            continue
+        # Blank lines around the body, or GitHub renders the markdown as literal text.
+        lines += [f"<details><summary><b>{group}</b> ({len(scns)})</summary>", ""]
+        for scn in scns:
+            fs = by_scn[scn]
+            # A scenario of only unlinked findings gets guidance, not a command
+            # that would silently do nothing.
+            target = next((f.target or f.scenario
+                           for f in fs if f.kind != "unlinked"), None)
+            label = _scenario_summary(fs)
+            if target:
+                label += f". Fix with `/fix {target}`"
+            # A tick means "I handled what this said". New drift changes the label,
+            # so it comes back unticked rather than hiding behind the old tick.
+            box = "x" if ticked.get(scn) == label else " "
+            lines.append(f"<!-- drift:{scn} -->")
+            lines.append(f"#### {scn}")
+            lines.append(f"- [{box}] {label}")
+            lines.extend(_detail_block(fs))
+            lines.append("")
+        lines += ["</details>", ""]
     return "\n".join(lines).rstrip() + "\n"
 
 
