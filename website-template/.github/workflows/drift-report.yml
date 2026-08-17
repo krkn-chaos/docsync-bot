@@ -37,6 +37,13 @@ jobs:
           repository: krkn-chaos/krkn
           path: krkn
 
+      # Optional to the scanner, so the report still runs without this checkout.
+      - name: Checkout krkn-operator (CRD source)
+        uses: actions/checkout@v4
+        with:
+          repository: krkn-chaos/krkn-operator
+          path: krkn-operator
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -60,5 +67,6 @@ jobs:
           python -m bot.drift_scanner \
             --krkn-hub krkn-hub \
             --krkn krkn \
+            --operator krkn-operator \
             --website . \
             --repo "${{ github.repository }}"
