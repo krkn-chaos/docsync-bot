@@ -104,7 +104,8 @@ params:
     rel = site.page("r", "r", "krknctl")
     assert site.build().returncode == 0
     assert headers(site.html(rel)) == ["Parameter", "Description", "Required"]
-    assert cells(site.html(rel)) == ["FLAG", "A flag.", "false"]
+    # Yes/No, not true/false: a docs table is read by people, not parsed.
+    assert cells(site.html(rel)) == ["FLAG", "A flag.", "No"]
 
 
 def test_mixed_rows_empty_cells(site):
@@ -138,13 +139,58 @@ params:
 """)
     rel = site.page("k", "k", "krknctl")
     assert site.build().returncode == 0
+    # Possible Values sits last: it is the sparsest column, so leading with it
+    # pushed Default and Required off to the right on the widest tables.
     assert headers(site.html(rel)) == [
-        "Parameter", "Description", "Type", "Possible Values", "Default", "Required",
+        "Parameter", "Description", "Type", "Default", "Required", "Possible Values",
     ]
     # Slash-joined: a comma reads as part of the value when a value contains one.
     assert cells(site.html(rel)) == [
-        "CLOUD_TYPE", "Cloud platform.", "enum", "aws/gcp/azure", "aws", "true",
+        "CLOUD_TYPE", "Cloud platform.", "enum", "aws", "Yes", "aws/gcp/azure",
     ]
+
+
+def test_a_flag_is_shown_instead_of_the_name(site):
+    """The krknctl page lists CLI flags, but name stays the env var in the data
+    so drift_scanner and the skip list keep matching on it."""
+    site.data("f", "krknctl", """\
+params:
+  - name: CERBERUS_ENABLED
+    flag: cerberus-enabled
+    description: Enable cerberus.
+""")
+    rel = site.page("f", "f", "krknctl", prefix="--")
+    assert site.build().returncode == 0
+    assert cells(site.html(rel)) == ["--cerberus-enabled", "Enable cerberus."]
+
+
+def test_a_row_with_no_flag_still_shows_its_name(site):
+    """env.sh rows carry no flag, and must not render an empty first cell."""
+    site.data("n", "krkn-hub", """\
+params:
+  - name: TIMEOUT
+    description: Seconds to wait.
+""")
+    rel = site.page("n", "n", "krkn-hub")
+    assert site.build().returncode == 0
+    assert cells(site.html(rel)) == ["TIMEOUT", "Seconds to wait."]
+
+
+def test_a_secret_is_marked_in_the_type_column(site):
+    """The marker rides in Type rather than a column of its own: one row in
+    thirty is secret, so a dedicated column would be empty on the rest."""
+    site.data("s", "krknctl", """\
+params:
+  - name: AWS_SECRET_ACCESS_KEY
+    description: AWS secret key.
+    type: string
+    secret: true
+""")
+    rel = site.page("s", "s", "krknctl")
+    assert site.build().returncode == 0
+    assert headers(site.html(rel)) == ["Parameter", "Description", "Type"]
+    assert cells(site.html(rel)) == ["AWS_SECRET_ACCESS_KEY", "AWS secret key.",
+                                     "string (secret)"]
 
 
 # a missing data file or empty params list fails the build (the errorf gate)

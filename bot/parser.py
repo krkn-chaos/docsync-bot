@@ -17,6 +17,10 @@ class ParamRecord:
     allowed_values: list[str] | None = None
     group: str | None = None  # krknctl-input.json "group", global params only
     flag: str | None = None   # krknctl CLI flag, e.g. cerberus-enabled
+    secret: bool = False      # krknctl "secret", keep the value off a command line
+    # Wording from the other source, for a param this one does not describe. Kept
+    # apart from description so it cannot outrank the curated published table.
+    borrowed_description: str | None = None
 
 
 EXPORT_LINE_RE = re.compile(r'^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$')
@@ -144,14 +148,9 @@ _REF_RE = re.compile(r'^\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)
 
 def _resolve_references(records: dict) -> None:
     """Replace a default that is only a pointer at another variable.
-
-    env.sh has RESILIENCY_FILE=${RESILIENCY_FILE:=$ALERTS_PATH}. A literal
-    "$ALERTS_PATH" in a docs table tells a reader nothing, so look up the sibling
-    it names. No sibling means no default, which beats printing a shell fragment.
-
-    Follows chains, so A -> $B -> $C -> "x" gives every one of them "x". A single
-    pass would leave A holding "$C" or "x" depending on declaration order.
-    """
+    "$ALERTS_PATH" tells a reader nothing, so look up the sibling it names. No
+    sibling means no default. Follows chains, since one pass would resolve them
+    in declaration order."""
     def resolve(name, seen):
         rec = records.get(name)
         if rec is None or rec.default is None:
@@ -176,13 +175,10 @@ def _as_bool(value: object) -> bool:
 
 
 def extract_krknctl_params(path: Path) -> list[ParamRecord]:
-    """Extract ParamRecords from a krknctl-input.json file
-    (description, type, required, allowed_values, group, flag).
-
-    Each entry carries two identifiers: "variable" is the env var, which is what
-    joins against env.sh, and "name" is the CLI flag the krknctl page shows a
-    reader. Both travel on the record, so a caller that needs to display flags
-    swaps them rather than re-parsing the file with a different key."""
+    """Extract ParamRecords from a krknctl-input.json file.
+    Each entry has two identifiers: "variable" is the env var that joins against
+    env.sh, "name" is the CLI flag the page shows. Both travel on the record, so
+    a caller can swap them rather than re-parse with a different key."""
     data = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, list):
         return []
@@ -190,9 +186,8 @@ def extract_krknctl_params(path: Path) -> list[ParamRecord]:
     for item in data:
         if not isinstance(item, dict) or "variable" not in item:
             continue
-        # "type": "Group" entries name and describe a group but configure
-        # nothing. They carry no "variable" today, so the check above already
-        # skips them; this keeps them out if one ever gains one.
+        # "type": "Group" entries describe a group but configure nothing. They
+        # carry no "variable" today; this holds if one ever gains one.
         if item.get("type") == "Group":
             continue
         raw_default = item.get("default")  # JSON null == no default
@@ -212,23 +207,36 @@ def extract_krknctl_params(path: Path) -> list[ParamRecord]:
             allowed_values=allowed,
             group=item.get("group"),
             flag=item.get("name"),
+            # The sources write the string "true", not a boolean.
+            secret=_as_bool(item.get("secret", "false")),
         ))
     return records
 
 
-def build_skip_list(krkn_hub_root, krkn_root) -> set[str]:
-    """Global params, which a per-scenario table must not repeat.
+# Set by the run.sh wrapper, not declared in either source.
+_INFRA_NAMES = {"SCENARIO_TYPE", "SCENARIO_FILE", "IMAGE"}
+
+
+def build_skip_list(krkn_hub_root, krkn_root) -> dict[str, str | None]:
+    """Global params and their defaults, for is_global().
     Tolerant of a missing source so tests can use small fixtures; CLI entry
     points call require_sources() first."""
-    names: set[str] = set()
+    out: dict[str, str | None] = {}
     env = Path(krkn_hub_root) / "env.sh"
     if env.exists():
-        names |= {r.name for r in extract_env_params(env)}
+        out |= {r.name: r.default for r in extract_env_params(env)}
     ctl = Path(krkn_root) / "containers/krknctl-input.json"
     if ctl.exists():
-        names |= {r.name for r in extract_krknctl_params(ctl)}
-    # Set by the run.sh wrapper, not declared in either source.
-    return names | {"SCENARIO_TYPE", "SCENARIO_FILE", "IMAGE"}
+        out |= {r.name: r.default for r in extract_krknctl_params(ctl)}
+    return out
+
+
+def is_global(record, skip) -> bool:
+    """True when a per-scenario table must not repeat this param. A scenario
+    that overrides the default documents its own value, so it is kept."""
+    if record.name in _INFRA_NAMES:
+        return True
+    return record.name in skip and record.default == skip[record.name]
 
 
 def require_sources(krkn_hub_root, krkn_root) -> None:

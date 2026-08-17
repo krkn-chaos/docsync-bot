@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 import yaml
@@ -28,6 +29,72 @@ def _rows(website, source):
     return yaml.safe_load(text)["params"]
 
 
+def _global_page(website, body):
+    page = website / "content/en/docs/scenarios"
+    page.mkdir(parents=True, exist_ok=True)
+    (page / "all-scenario-env.md").write_text(body, encoding="utf-8")
+
+
+def test_a_global_description_is_carried_from_the_published_page(tmp_path):
+    """6 of the 75 krkn-hub globals have no description in any source, and
+    SIGNAL_STATE is one that carries a long one on the page."""
+    hub, krkn = _sources(tmp_path, CERBERUS + 'export SIGNAL_STATE=${SIGNAL_STATE:=RUN}\n', CTL)
+    website = tmp_path / "site"
+    _global_page(website,
+                 "Parameter | Description | Default\n"
+                 "--------- | ----------- | -------\n"
+                 "`SIGNAL_STATE` | Waits for the RUN signal | RUN\n")
+    g.emit(website, hub, krkn)
+    rows = {r["name"]: r for r in _rows(website, "krkn-hub")}
+    assert rows["SIGNAL_STATE"]["description"] == "Waits for the RUN signal"
+    assert rows["SIGNAL_STATE"]["description_source"] == "published-table"
+
+
+def test_every_group_table_on_the_global_page_is_read(tmp_path):
+    """The real page carries nine tables, one per group. A first-table-only
+    reader would blank the other eight."""
+    hub, krkn = _sources(
+        tmp_path,
+        CERBERUS + 'export SIGNAL_STATE=${SIGNAL_STATE:=RUN}\nexport PORT=${PORT:=8081}\n',
+        CTL)
+    website = tmp_path / "site"
+    _global_page(website,
+                 "Parameter | Description\n--------- | -----------\n"
+                 "`SIGNAL_STATE` | From table one\n"
+                 "\n"
+                 "Parameter | Description\n--------- | -----------\n"
+                 "`PORT` | From table two\n")
+    g.emit(website, hub, krkn)
+    rows = {r["name"]: r for r in _rows(website, "krkn-hub")}
+    assert rows["SIGNAL_STATE"]["description"] == "From table one"
+    assert rows["PORT"]["description"] == "From table two"
+
+
+def test_the_published_page_outranks_the_other_source(tmp_path):
+    """The page is the only human-written rung. krknctl says "Enables Cerberus
+    Support"; the page says when to set it, and elsewhere carries links."""
+    hub, krkn = _sources(tmp_path, CERBERUS, CTL)
+    website = tmp_path / "site"
+    _global_page(website,
+                 "Parameter | Description\n--------- | -----------\n"
+                 "`CERBERUS_ENABLED` | Set this to true if cerberus monitors the cluster\n")
+    g.emit(website, hub, krkn)
+    rows = {r["name"]: r for r in _rows(website, "krkn-hub")}
+    assert rows["CERBERUS_ENABLED"]["description"] == \
+        "Set this to true if cerberus monitors the cluster"
+    assert rows["CERBERUS_ENABLED"]["description_source"] == "published-table"
+
+
+def test_the_other_source_fills_a_param_the_page_never_listed(tmp_path):
+    hub, krkn = _sources(tmp_path, CERBERUS, CTL)
+    website = tmp_path / "site"
+    _global_page(website, "No table here.\n")
+    g.emit(website, hub, krkn)
+    rows = {r["name"]: r for r in _rows(website, "krkn-hub")}
+    assert rows["CERBERUS_ENABLED"]["description"] == "Enables Cerberus Support"
+    assert rows["CERBERUS_ENABLED"]["description_source"] == "krknctl"
+
+
 def test_env_export_borrows_its_group_from_the_join(tmp_path):
     hub, krkn = _sources(tmp_path, CERBERUS, CTL)
     _, env = g.build_groups(hub, krkn)
@@ -37,7 +104,7 @@ def test_env_export_borrows_its_group_from_the_join(tmp_path):
 def test_env_export_borrows_a_description_when_it_has_no_comment(tmp_path):
     hub, krkn = _sources(tmp_path, CERBERUS, CTL)
     _, env = g.build_groups(hub, krkn)
-    assert env[0].description == "Enables Cerberus Support"
+    assert env[0].borrowed_description == "Enables Cerberus Support"
 
 
 def test_own_comment_beats_the_joined_description(tmp_path):
@@ -159,3 +226,106 @@ def test_regenerating_twice_is_byte_identical(tmp_path):
     first = (web / "data/params/globals/krkn-hub.yaml").read_text(encoding="utf-8")
     g.emit(web, hub, krkn)
     assert (web / "data/params/globals/krkn-hub.yaml").read_text(encoding="utf-8") == first
+
+
+def test_the_page_section_outranks_the_krknctl_group(tmp_path):
+    """krknctl's groups describe the krknctl page. Applying them to the krkn-hub
+    page put params in sections that page does not have."""
+    hub, krkn = _sources(tmp_path, CERBERUS, CTL)
+    website = tmp_path / "site"
+    _global_page(website, "## Kraken\n\nParameter | Description | Default\n"
+                          "--------- | ----------- | -------\n"
+                          "`CERBERUS_ENABLED` | Enables it | False\n")
+    _, env = g.build_groups(hub, krkn, website)
+    assert env[0].group == "kraken"
+
+
+def test_a_param_new_to_the_page_still_takes_the_krknctl_group(tmp_path):
+    hub, krkn = _sources(tmp_path, CERBERUS, CTL)
+    website = tmp_path / "site"
+    _global_page(website, "## Kraken\n\nNo table here.\n")
+    _, env = g.build_groups(hub, krkn, website)
+    assert env[0].group == "cerberus"
+
+
+def test_a_param_in_neither_lands_in_other(tmp_path):
+    hub, krkn = _sources(tmp_path, 'export BRAND_NEW=${BRAND_NEW:=1}\n', CTL)
+    website = tmp_path / "site"
+    _global_page(website, "## Kraken\n\nNo table here.\n")
+    _, env = g.build_groups(hub, krkn, website)
+    assert env[0].group == "other"
+
+
+def test_a_dropped_global_is_reported(tmp_path):
+    """ES_RUN_TAG was removed from env.sh but stayed on the page, and nothing
+    said so: the orphan check existed only on the per-scenario path."""
+    hub, krkn = _sources(tmp_path, CERBERUS, CTL)
+    website = tmp_path / "site"
+    _global_page(website, "Parameter | Description | Default\n"
+                          "--------- | ----------- | -------\n"
+                          "`ES_RUN_TAG` | Tag to identify the run | blank\n")
+    _, gaps = g.emit(website, hub, krkn)
+    assert ("globals", "krkn-hub", "ES_RUN_TAG", "orphan", "") in gaps
+
+
+def test_the_data_file_and_the_injected_call_agree_on_the_group(tmp_path):
+    """Two build_groups calls with different website_root would emit a section
+    filtering on a group no row carries, rendering an empty table."""
+    hub, krkn = _sources(tmp_path, CERBERUS, CTL)
+    website = tmp_path / "site"
+    _global_page(website, "## Kraken\n\nParameter | Description | Default\n"
+                          "--------- | ----------- | -------\n"
+                          "`CERBERUS_ENABLED` | Enables it | False\n")
+    g.emit(website, hub, krkn)
+    g.scaffold(website, hub, krkn)
+    page = (website / "content/en/docs/scenarios/all-scenario-env.md").read_text(encoding="utf-8")
+    assert 'group="kraken"' in page
+    assert {r["group"] for r in _rows(website, "krkn-hub")} == {"kraken"}
+
+
+def _run(website, hub, krkn):
+    g.emit(website, hub, krkn)
+    g.scaffold(website, hub, krkn)
+    page = website / "content/en/docs/scenarios/all-scenario-env.md"
+    return page.read_text(encoding="utf-8"), _rows(website, "krkn-hub")
+
+
+def test_a_second_run_changes_nothing(tmp_path):
+    """Run two reads a converted page, so every group would collapse into "other"
+    and every call already on the page would filter on a group nothing carries."""
+    hub, krkn = _sources(tmp_path, CERBERUS, CTL)
+    website = tmp_path / "site"
+    _global_page(website, "## Kraken\n\nParameter | Description | Default\n"
+                          "--------- | ----------- | -------\n"
+                          "`CERBERUS_ENABLED` | Enables it | False\n")
+    first = _run(website, hub, krkn)
+    assert _run(website, hub, krkn) == first
+
+
+def test_every_emitted_param_is_rendered_by_some_call(tmp_path):
+    """A param in the data file that no group call selects renders nowhere, which
+    is worse than a blank cell because nothing on the page shows it is missing."""
+    hub, krkn = _sources(
+        tmp_path, CERBERUS + 'export GLOBAL_PROBE_TIMEOUT=${GLOBAL_PROBE_TIMEOUT:=90}\n', CTL)
+    website = tmp_path / "site"
+    _global_page(website, "## Kraken\n\nParameter | Description | Default\n"
+                          "--------- | ----------- | -------\n"
+                          "`CERBERUS_ENABLED` | Enables it | False\n")
+    page, rows = _run(website, hub, krkn)
+    rendered = set(re.findall(r'group="([^"]+)"', page))
+    assert {r["group"] for r in rows} <= rendered
+    assert "GLOBAL_PROBE_TIMEOUT" in {r["name"] for r in rows}
+
+
+def test_provenance_survives_a_second_run(tmp_path):
+    """The published table is read once, by the run that replaces it."""
+    hub, krkn = _sources(tmp_path, CERBERUS + 'export SIGNAL_STATE=${SIGNAL_STATE:=RUN}\n', CTL)
+    website = tmp_path / "site"
+    _global_page(website, "Parameter | Description | Default\n"
+                          "--------- | ----------- | -------\n"
+                          "`SIGNAL_STATE` | Waits for the RUN signal | RUN\n")
+    _run(website, hub, krkn)
+    _, rows = _run(website, hub, krkn)
+    row = next(r for r in rows if r["name"] == "SIGNAL_STATE")
+    assert row["description"] == "Waits for the RUN signal"
+    assert row["description_source"] == "published-table"

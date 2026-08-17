@@ -56,15 +56,26 @@ def test_no_drift_when_table_matches(tmp_path):
 
 
 def test_skips_global_params(tmp_path):
-    """A param declared in the krkn-hub ROOT env.sh is global, so a per-scenario
-    table must not repeat it. The skip list reads the source, not the docs page."""
+    """A param the root env.sh declares with the same default is global, so a
+    per-scenario table must not repeat it."""
     hub, web = _mk(tmp_path,
-                   env='export WAIT_DURATION=${WAIT_DURATION:="0"}\nexport LOCAL=${LOCAL:="1"}\n',
+                   env='export WAIT_DURATION=${WAIT_DURATION:="60"}\nexport LOCAL=${LOCAL:="1"}\n',
                    table="params:\n  - name: LOCAL\n    default: '1'\n")
     (hub / "env.sh").write_text('export WAIT_DURATION=${WAIT_DURATION:="60"}\n', encoding="utf-8")
     fs = ds.scenario_findings("demo", hub, web, krkn_root=tmp_path / "no-krkn")
     assert all(f.param != "WAIT_DURATION" for f in fs), "global leaked into a scenario table"
     assert [f.kind for f in fs if f.source == "krkn-hub"] == [], "LOCAL should be in sync"
+
+
+def test_a_global_the_scenario_overrides_is_not_skipped(tmp_path):
+    """network-chaos sets WAIT_DURATION=300 against a global 60. Skipping on the
+    name alone hid it, and the globals page then stated the wrong default."""
+    hub, web = _mk(tmp_path,
+                   env='export WAIT_DURATION=${WAIT_DURATION:="300"}\n',
+                   table="params: []\n")
+    (hub / "env.sh").write_text('export WAIT_DURATION=${WAIT_DURATION:="60"}\n', encoding="utf-8")
+    fs = ds.scenario_findings("demo", hub, web, krkn_root=tmp_path / "no-krkn")
+    assert [f.param for f in fs if f.source == "krkn-hub"] == ["WAIT_DURATION"]
 
 
 def test_format_report_structure_and_no_emdash(tmp_path):

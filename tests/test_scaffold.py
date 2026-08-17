@@ -1,4 +1,5 @@
-from bot.scaffold import inject_shortcode, scaffold_scenario
+from bot.scaffold import (_row_cells, inject_shortcode, published_cell,
+                          published_table, scaffold_scenario)
 
 
 def _data(website, scenario, source="krkn-hub"):
@@ -65,7 +66,7 @@ def test_scaffold_creates_page_when_none_exists(tmp_path):
     krkn_hub_tab = (page / "_tab-krkn-hub.md").read_text(encoding="utf-8")
     assert '{{< param-table scenario="brand-new-scenario" source="krkn-hub" >}}' in krkn_hub_tab
     krknctl_tab = (page / "_tab-krknctl.md").read_text(encoding="utf-8")
-    assert '{{< param-table scenario="brand-new-scenario" source="krknctl" >}}' in krknctl_tab
+    assert '{{< param-table scenario="brand-new-scenario" source="krknctl" prefix="--" >}}' in krknctl_tab
 
 
 def test_scaffold_only_creates_tabs_for_sources_with_data(tmp_path):
@@ -97,6 +98,64 @@ def test_replaces_table_with_shortcode_and_keeps_prose():
     assert "| ACTION |" not in out
     assert "#### Supported parameters" in out
     assert "**NOTE** keep this prose." in out
+
+
+def test_the_krknctl_tab_call_carries_the_flag_prefix():
+    """The data stores a bare flag but a reader types --telemetry-enabled."""
+    out = inject_shortcode(TAB, scenario="node-scenarios", source="krknctl")
+    assert 'prefix="--"' in out
+
+
+def test_the_krkn_hub_tab_call_does_not():
+    """env.sh params are env vars and take no prefix."""
+    out = inject_shortcode(TAB, scenario="node-scenarios", source="krkn-hub")
+    assert "prefix" not in out
+
+
+PUBLISHED = """\
+Parameter | Description | Type | Default
+--------- | ----------- | ---- | -------
+ACTION    | Do a thing  | enum | stop
+TIMEOUT   |             | number | 180
+"""
+
+SECOND_GROUP = """\
+Parameter | Description | Default
+--------- | ----------- | -------
+SIGNAL_STATE | Waits for the RUN signal | RUN
+"""
+
+
+def test_published_table_keys_rows_on_the_parameter():
+    """Headers travel per row: two tables on one page need not match."""
+    rows = published_table(PUBLISHED)
+    assert set(rows) == {"ACTION", "TIMEOUT"}
+    headers, cells = rows["ACTION"]
+    assert headers == ["parameter", "description", "type", "default"]
+    assert cells[1] == "Do a thing"
+
+
+def test_published_table_reads_every_table_on_the_page():
+    """The global pages carry one table per group, not one per page."""
+    rows = published_table(PUBLISHED + "\n" + SECOND_GROUP)
+    assert set(rows) == {"ACTION", "TIMEOUT", "SIGNAL_STATE"}
+    assert published_cell(rows, "SIGNAL_STATE", "description") == "Waits for the RUN signal"
+
+
+def test_published_cell_on_a_column_the_table_does_not_have():
+    """The global pages have no Type column at all."""
+    rows = published_table(SECOND_GROUP)
+    assert published_cell(rows, "SIGNAL_STATE", "type") == ""
+
+
+def test_published_table_strips_the_flag_prefix():
+    """The krknctl page lists --action; the data file keys name on ACTION."""
+    rows = published_table("Parameter | Description\n--- | ---\n`--action` | Do it\n")
+    assert set(rows) == {"action"}
+
+
+def test_published_table_on_a_page_with_no_table():
+    assert published_table("just prose\n") == {}
 
 
 def test_idempotent_when_already_migrated():
@@ -131,3 +190,37 @@ def test_bare_table_idempotent():
     once = inject_shortcode(BARE_TAB, "node-scenarios", "krkn-hub")
     twice = inject_shortcode(once, "node-scenarios", "krkn-hub")
     assert once == twice
+
+
+def test_frontmatter_is_not_mistaken_for_a_table():
+    """--- passes the separator shape test, and a pipe in a metadata value
+    satisfied the guard, so the closing fence and a title line were deleted."""
+    page = ("---\ntitle: Node Scenarios\ndescription: Chaos | node\n---\n\n"
+            "| Parameter | Description |\n| --- | --- |\n| DUR | how long |\n")
+    out = inject_shortcode(page, "node-scenarios", "krkn-hub")
+    assert out.startswith("---\ntitle: Node Scenarios\ndescription: Chaos | node\n---\n")
+    assert "param-table" in out
+
+
+def test_a_table_that_is_not_parameters_is_left_alone():
+    """A tab's first table can be prerequisites. Replacing it deleted that table
+    and left the real one behind as a stale duplicate, permanently."""
+    page = ("## Prerequisites\n\n| Requirement | Notes |\n| --- | --- |\n"
+            "| kubectl | in PATH |\n\n## Parameters\n\n"
+            "| Parameter | Description |\n| --- | --- |\n| DUR | how long |\n")
+    out = inject_shortcode(page, "x", "krkn-hub")
+    assert "| kubectl | in PATH |" in out
+    assert "| DUR | how long |" not in out
+
+
+def test_an_argument_header_is_a_parameter_table():
+    """7 of the 52 published tabs head the column Argument, not Parameter."""
+    page = "| Argument | Description |\n| --- | --- |\n| DUR | how long |\n"
+    assert "param-table" in inject_shortcode(page, "x", "krkn-hub")
+
+
+def test_an_escaped_pipe_stays_in_its_cell():
+    r"""A \| inside a description split the row, shifting every column right so
+    Type read the tail of the description and then froze in the data file."""
+    assert _row_cells(r"| MODE | one of a \| b | string |") == \
+        ["MODE", "one of a | b", "string"]
