@@ -10,7 +10,7 @@ from bot.parser import ParamRecord
 
 # ponytail: name heuristic. The upstream ask adds a real marker to the Go types;
 # swap to that when it lands.
-_SECRETISH = ("secret", "password", "token", "credential")
+_SECRETISH = ("secret", "password", "token", "credential", "key")
 # A field that names or classifies a secret is not one: passwordSecretRef holds a
 # Secret's name, secretType holds an enum. Marking them would contradict the row.
 _NOT_SECRET = ("ref", "type", "name", "uuid", "path", "id")

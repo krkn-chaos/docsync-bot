@@ -202,3 +202,14 @@ def test_meta_carries_what_the_page_heading_needs():
 ])
 def test_the_plural_is_already_lowercase_so_it_can_be_a_scenario_key(kind, plural):
     assert crd_meta(crd(kind))["plural"] == plural
+
+
+def test_a_key_field_is_marked_secret_but_a_reference_to_one_is_not():
+    """apiKey is about as common as CRD field names get, and an unmarked
+    credential is the expensive direction to be wrong in."""
+    from bot.crd_parser import _is_secret
+    for leaf in ("apiKey", "privateKey", "spec.accessKey", "secretKey"):
+        assert _is_secret(leaf) is True, leaf
+    # _NOT_SECRET still wins, which is what keeps "key" safe to add.
+    for leaf in ("apiKeyRef", "keyName", "spec.signingKeyPath", "keyType"):
+        assert _is_secret(leaf) is False, leaf
