@@ -193,8 +193,10 @@ def test_a_removed_param_is_marked_as_needing_a_look():
     """extra is the only kind where /fix deletes a documented row."""
     fs = [_mkf("stale", param="x", old="1", new="2"), _mkf("extra", param="GONE", old="9")]
     s = ds._scenario_summary(fs)
-    assert "Needs a look" in s and "1 param" in s
+    assert "Review first" in s and "1 param" in s
     assert "Safe to regenerate" not in s
+    # /fix does remove the row, so this asks for a look, not for a maintainer.
+    assert "Maintainer needed" not in s
 
 
 def test_long_group_lists_are_collapsed_not_inlined():
@@ -274,3 +276,38 @@ def test_a_tick_from_the_old_flat_layout_still_counts():
             "#### node-scenarios\n"
             f"- [x] {label}\n")
     assert "- [x]" in ds.format_report(fs, prev_body=flat)
+
+
+def _unlinked(scenario, why="no hand-written page is mapped to it"):
+    f = ds.Finding(scenario, "page", "unlinked", None, None, why, "s", "t")
+    f.target = "operator"
+    return f
+
+
+def test_the_group_header_counts_what_needs_a_maintainer():
+    """A red marker inside a collapsed group is invisible, which would defeat the
+    collapse. Only unlinked counts: /fix handles everything else."""
+    md = ds.format_report([_unlinked("krknusers"), _unlinked("krknwebhooks"),
+                           _f("krkngraphruns", kind="missing-link", target="operator")])
+    assert "<b>krkn-operator CRDs</b> (3) · 🔴 2 need a maintainer" in md
+
+
+def test_one_maintainer_item_reads_as_singular():
+    md = ds.format_report([_unlinked("krknusers")])
+    assert "🔴 1 needs a maintainer" in md
+
+
+def test_a_clean_group_header_stays_a_bare_count():
+    """No suffix when nothing is blocked, so the body only changes with findings."""
+    md = ds.format_report([_f("node-scenarios"), _f("pod-scenarios")])
+    assert "<b>krkn-hub scenarios</b> (2)</summary>" in md
+    assert "🔴" not in md
+
+
+def test_a_tick_set_before_the_marker_existed_comes_back_unticked():
+    """Labels changed, so every box resets once. It has to reset rather than
+    carry over: the old label made a claim about /fix that was wrong."""
+    fs = [_unlinked("krknusers")]
+    old = ("### Docs drift report\n\n<!-- drift:krknusers -->\n#### krknusers\n"
+           "- [x] reference page exists but nothing links to it. **Needs a human**\n")
+    assert "- [ ]" in ds.format_report(fs, prev_body=old)

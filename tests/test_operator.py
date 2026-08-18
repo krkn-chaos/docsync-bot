@@ -336,18 +336,83 @@ def test_an_unlinked_only_group_offers_no_command_and_names_the_real_fix():
     """No `/fix` links a page, so offering one would send a reader to a command
     that silently does nothing."""
     md = _report([_finding(kind="unlinked", source="page", param=None,
+                           new="no hand-written page is mapped to it",
+                           old='Add it to `_PAGE_LINKS`, or put a crd-ref call there',
                            target="operator", table_file="ref/krknusers.md")])
     # The preamble and the guidance both say the word, so pin the offer itself.
     assert "Fix with `/fix" not in md
-    assert "_PAGE_LINKS" in md and 'crd-ref crd="krknusers"' in md
-    assert "Needs a human" in md
+    assert "🔴 **Maintainer needed:** no hand-written page is mapped to it" in md
+    # The checkbox carries the reason, the bullet carries the fix. Not both.
+    assert "Add it to `_PAGE_LINKS`, or put a crd-ref call there" in md
 
 
 def test_a_mixed_group_keeps_the_command_and_flags_the_part_it_cannot_do():
     md = _report([_finding(target="operator"),
                   _finding(kind="unlinked", source="page", param=None,
+                           new="its page `usage/jobs.md` does not exist",
                            target="operator")])
     assert "`/fix operator`" in md
-    assert "plus a link no `/fix` can add" in md
-    # The command covers the rest, so it must not claim to cover everything.
-    assert "The rest is safe to regenerate" in md
+    assert "one link `/fix` cannot add" in md
+    # The command covers the rest, so the blocker has to be the specific one.
+    assert "its page `usage/jobs.md` does not exist" in md
+
+
+def test_a_link_the_bot_will_add_is_not_blamed_on_a_maintainer():
+    """The bug this split fixes: every one of these read `No /fix does this` while
+    link_pages was about to add the link by itself."""
+    md = _report([_finding(kind="missing-link", source="page", param=None,
+                           target="operator", table_file="ref/krknusers.md")])
+    assert "`/fix operator` adds the crd-ref call" in md
+    assert "Fix with `/fix operator`" in md
+    assert "Maintainer needed" not in md and "_PAGE_LINKS" not in md
+
+
+def _pages(website, *rels, body="prose\n"):
+    """Create hand-written operator pages, the ones _PAGE_LINKS maps kinds to."""
+    for rel in rels:
+        p = Path(website) / operator.PAGES_ROOT / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body, encoding="utf-8")
+
+
+_MAPPED = "administration/user-management.md"    # krknusers, krknusergroups
+
+
+def test_link_blocker_agrees_with_link_pages(repo):
+    """The reason the two live side by side. If they disagree the report either
+    promises a link nothing writes, or blames a maintainer for one the bot adds."""
+    website = repo / "website"
+    _pages(website, *operator._PAGE_LINKS)
+    # One page is already done by hand, one is missing entirely.
+    _pages(website, "usage/chaos-studio.md", body='x {{< crd-ref crd="krkngraphruns" >}}\n')
+    (website / operator.PAGES_ROOT / "usage/run-scenarios.md").unlink()
+
+    # Sampled before link_pages runs: afterwards every page carries a crd-ref and
+    # the blocker would answer about the world the write already changed.
+    blocked = {plural: operator.link_blocker(website, plural) is not None
+               for crds in operator._PAGE_LINKS.values() for plural in crds}
+    will_write = {p.relative_to(website / operator.PAGES_ROOT).as_posix()
+                  for p in operator.link_pages(website)}
+    for rel, crds in operator._PAGE_LINKS.items():
+        for plural in crds:
+            assert blocked[plural] is (rel not in will_write), f"{plural} disagrees"
+
+
+def test_link_blocker_names_which_of_the_three_jobs_it_is(repo):
+    """Each cause is a different job, so a single generic remedy would be wrong
+    for two of the three. The reason and the fix have to agree."""
+    website = repo / "website"
+    reason, fix = operator.link_blocker(website, "krknusers")
+    assert "does not exist" in reason and fix.startswith("Write ")
+
+    _pages(website, _MAPPED)
+    assert operator.link_blocker(website, "krknusers") is None
+
+    _pages(website, _MAPPED, body='x {{< crd-ref crd="krknusers" >}}\n')
+    # krknusergroups shares that page, so link_pages now skips it forever.
+    reason, fix = operator.link_blocker(website, "krknusergroups")
+    assert "already carries a crd-ref" in reason
+    assert 'crd-ref crd="krknusergroups"' in fix and _MAPPED in fix
+
+    reason, fix = operator.link_blocker(website, "krknwebhooks")
+    assert "no hand-written page is mapped" in reason and "_PAGE_LINKS" in fix

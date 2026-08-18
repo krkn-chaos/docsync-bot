@@ -16,7 +16,9 @@ from bot.emitter import HEADER, emit_data_file
 from bot.report import write_report
 
 CRD_GLOB = "config/crd/bases/*.yaml"
-SECTION = "content/en/docs/krkn-operator/api-reference"
+# The hand-written operator docs, and the generated reference nested inside them.
+PAGES_ROOT = "content/en/docs/krkn-operator"
+SECTION = f"{PAGES_ROOT}/api-reference"
 SOURCES = ("spec", "status", "columns")
 # plural -> kind, short name, field count. The crd-ref shortcode resolves against
 # this, so a renamed CRD fails the site build instead of leaving a 404 in prose.
@@ -185,6 +187,36 @@ _PAGE_LINKS = {
 }
 
 
+def _page_ready(page) -> bool:
+    """Whether link_pages will write this page: it has to exist, and carry no
+    crd-ref yet. Shared with link_blocker so the report cannot promise a link
+    this refuses to write."""
+    return page.exists() and "crd-ref" not in page.read_text(encoding="utf-8")
+
+
+def link_blocker(website_root, plural):
+    """Why link_pages will not link this kind and what to do about it, or None
+    when the next run will link it.
+
+    Returns (reason, remedy). They are different jobs, so a single generic
+    "add it to _PAGE_LINKS" would be wrong for two of the three."""
+    rel = next((r for r, crds in _PAGE_LINKS.items() if plural in crds), None)
+    if rel is None:
+        return ("no hand-written page is mapped to it",
+                f"Add it to `_PAGE_LINKS` in `bot/operator.py`, or put a "
+                f'`{{{{< crd-ref crd="{plural}" >}}}}` call on the page that '
+                f"describes it")
+    page = Path(website_root) / PAGES_ROOT / rel
+    if not page.exists():
+        return (f"its page `{rel}` does not exist",
+                f"Write `{rel}`, or map the kind to a page that exists")
+    if not _page_ready(page):
+        return (f"`{rel}` already carries a crd-ref call, which counts as linked",
+                f'Add `{{{{< crd-ref crd="{plural}" >}}}}` to `{rel}` by hand: a '
+                f"page that already has one is never touched again")
+    return None
+
+
 def link_pages(website_root):
     """Point each hand-written page at the reference for the kinds it describes.
 
@@ -192,15 +224,15 @@ def link_pages(website_root):
     resolved at build time and a renamed CRD fails the build instead of leaving a
     dead link. Idempotent, and a missing page is left for drift_scanner to report
     rather than crashed on."""
-    root = Path(website_root) / "content/en/docs/krkn-operator"
+    root = Path(website_root) / PAGES_ROOT
     written = []
     for rel, crds in _PAGE_LINKS.items():
         page = root / rel
-        if not page.exists() or "crd-ref" in (text := page.read_text(encoding="utf-8")):
+        if not _page_ready(page):
             continue
         refs = " &ensp; ".join(f'{{{{< crd-ref crd="{c}" >}}}}' for c in crds)
-        page.write_text(f"{text.rstrip()}\n\n---\n\n**API reference:** {refs}\n",
-                        encoding="utf-8")
+        page.write_text(f"{page.read_text(encoding='utf-8').rstrip()}"
+                        f"\n\n---\n\n**API reference:** {refs}\n", encoding="utf-8")
         written.append(page)
     return written
 
