@@ -37,6 +37,7 @@ bot/                    # the Python package
   globals.py            # entrypoint for the two global parameter pages
   operator.py           # entrypoint for the krkn-operator api-reference pages
   drift_scanner.py      # entrypoint, report-only: sources vs committed tables
+  targets.py            # entrypoint: changed website paths -> the targets that regenerate them
   github_client.py      # opens and edits the rolling docs-drift issue
 tests/                  # pytest, also holds the shortcode Hugo harness from the template PR (they coexist)
   fixtures/             # real env.sh and krknctl-input.json from krkn-hub scenarios
