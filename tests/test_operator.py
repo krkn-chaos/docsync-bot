@@ -279,7 +279,7 @@ def test_drift_ignores_a_reference_page_linking_to_itself(repo):
     """The generated pages are the target, so their own calls must not count."""
     from bot.drift_scanner import _linked_crds
     run(repo)
-    assert _linked_crds(repo / "website") == set()
+    assert _linked_crds(repo / "website") == {}
 
 
 def test_drift_sees_a_field_the_tables_have_not_caught_up_with(repo):
@@ -416,3 +416,31 @@ def test_link_blocker_names_which_of_the_three_jobs_it_is(repo):
 
     reason, fix = operator.link_blocker(website, "krknwebhooks")
     assert "no hand-written page is mapped" in reason and "_PAGE_LINKS" in fix
+
+
+def test_a_missing_link_alone_does_not_claim_a_missing_table():
+    """The tables merge before the crd-ref lines do, so this is every kind's state
+    for a while. The label read `no table yet for .`, which is also the reverse."""
+    md = _report([_finding(kind="missing-link", source="page", param=None,
+                           target="operator", table_file="ref/krknusers.md")])
+    assert "no table yet for ." not in md
+    assert "tables are current, nothing links to them yet" in md
+    assert "Fix with `/fix operator`" in md
+
+
+def test_a_crd_ref_naming_a_removed_kind_is_reported_as_a_maintainer_job(repo):
+    """A rename upstream leaves the call behind and reds the Hugo build. No /fix
+    reaches it, so silence here means bisecting a broken site by hand."""
+    from bot.drift_scanner import operator_findings
+    run(repo)
+    _pages(repo / "website", "administration/legacy.md",
+           body='prose {{< crd-ref crd="krknoldthings" >}}\n')
+    fs = [f for f in operator_findings(repo / "operator", repo / "website")
+          if f.kind == "dangling"]
+    assert [f.scenario for f in fs] == ["krknoldthings"]
+
+    md = _report(fs)
+    assert "Maintainer needed" in md and "1 needs a maintainer" in md
+    # The file to edit, and no command that would silently do nothing.
+    assert "administration/legacy.md" in md
+    assert "Fix with `/fix" not in md

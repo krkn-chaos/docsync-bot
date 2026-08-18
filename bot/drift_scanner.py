@@ -23,6 +23,9 @@ from bot.targets import OPERATOR
 # notification email and on mobile, and none of those run a math renderer.
 _HUMAN = "🔴 **Maintainer needed:**"
 _REVIEW = "⚠️ **Review first:**"
+# Kinds no /fix can act on. Named once so a kind added later cannot be left out
+# of the red marker, the header count and the suppressed command.
+_NEEDS_HUMAN = ("unlinked", "dangling")
 
 _MARKER_RE = re.compile(r'<krkn-hub-scenario\s+id="([^"]+)"')
 _SOURCES = (("krkn-hub", "env.sh"), ("krknctl", "krknctl-input.json"))
@@ -34,8 +37,8 @@ _KRKN_URL = "https://github.com/krkn-chaos/krkn/blob/main"
 class Finding:
     scenario: str
     source: str            # "krkn-hub" | "krknctl" | a CRD section | "page"
-    # "missing-table" | "missing" | "stale" | "extra" | "missing-link" | "unlinked"
-    # Only "unlinked" needs a person; "missing-link" is a link /fix does add.
+    # "missing-table" | "missing" | "stale" | "extra" | "missing-link" | _NEEDS_HUMAN
+    # "missing-link" is a link /fix does add; _NEEDS_HUMAN kinds it provably cannot.
     kind: str
     param: str | None = None
     # These two are read per kind, as they already are for stale and missing-table.
@@ -203,9 +206,9 @@ def _finding_detail(f: Finding) -> str:
     elif f.kind == "missing-link":
         return (f"nothing links to this reference yet. `/fix operator` adds the "
                 f"crd-ref call. page: {f.table_file}")
-    elif f.kind == "unlinked":
+    elif f.kind in _NEEDS_HUMAN:
         # The checkbox already carries the reason, so this line carries the fix.
-        # Which of the three it is decides the fix, so it is never generic.
+        # Which blocker it is decides the fix, so it is never generic.
         return f"{f.old}. page: {f.table_file}"
     else:
         body = f"{f.source}: {f.kind}"
@@ -218,20 +221,26 @@ def _scenario_summary(fs) -> str:
     does it, REVIEW when /fix would delete a documented row, HUMAN when /fix
     provably cannot act. Understating the bot is as wrong as overstating it."""
     extras = [f for f in fs if f.kind == "extra"]
-    unlinked = [f for f in fs if f.kind == "unlinked"]
+    unlinked = [f for f in fs if f.kind in _NEEDS_HUMAN]
     kinds = {f.kind for f in fs}
     if kinds == {"unlinked"}:
         return f"reference page exists but nothing links to it. {_HUMAN} {fs[0].new}"
+    if kinds == {"dangling"}:
+        return f"{_HUMAN} {fs[0].new}"
     if kinds <= {"missing-table", "missing-link"}:
         tables = [f for f in fs if f.kind == "missing-table"]
         n = sum(len(f.new.split(", ")) for f in tables if f.new)
-        if len(tables) > 3:
+        if not tables:
+            # Only the crd-ref line is absent, which is every kind's state for as
+            # long as it takes the first generated tables to merge.
+            what = "tables are current, nothing links to them yet"
+        elif len(tables) > 3:
             what = f"{len(tables)} tables missing, {n} params"
         else:
             what = f"no table yet for {', '.join(sorted(f.source for f in tables))}"
     else:
         # Counted apart: /fix regenerates tables, and it cannot add this link.
-        n = sum(1 for f in fs if f.kind != "unlinked")
+        n = sum(1 for f in fs if f.kind not in _NEEDS_HUMAN)
         what = f"{n} drift item{'s' if n != 1 else ''}"
 
     if unlinked:
@@ -290,9 +299,12 @@ _CRD_REF_RE = re.compile(r'crd-ref\s+crd="([^"]+)"')
 _OPERATOR_URL = "https://github.com/krkn-chaos/krkn-operator/blob/main"
 
 
-def _linked_crds(website_root) -> set[str]:
-    """Plurals a hand-written operator page points at with a crd-ref call. The
-    reference pages themselves are skipped: they are the link target.
+def _linked_crds(website_root) -> dict[str, str]:
+    """Plural -> the hand-written operator page whose crd-ref call points at it.
+    The reference pages themselves are skipped: they are the link target.
+
+    The page is carried, not just the plural, so a call naming a kind that no
+    longer exists can be reported against the file a maintainer has to edit.
 
     A call anywhere counts, including on a page that does not describe that kind.
     Judging whether a page is the right home is editorial, and link_pages still
@@ -301,9 +313,14 @@ def _linked_crds(website_root) -> set[str]:
     from bot.operator import PAGES_ROOT
     root = Path(website_root) / PAGES_ROOT
     if not root.exists():
-        return set()
-    return {c for p in root.rglob("*.md") if "api-reference" not in p.parts
-            for c in _CRD_REF_RE.findall(p.read_text(encoding="utf-8"))}
+        return {}
+    found = {}
+    for p in sorted(root.rglob("*.md")):
+        if "api-reference" in p.parts:
+            continue
+        for c in _CRD_REF_RE.findall(p.read_text(encoding="utf-8")):
+            found.setdefault(c, p.relative_to(website_root).as_posix())
+    return found
 
 
 def operator_findings(operator_root, website_root, operator_url=_OPERATOR_URL):
@@ -313,10 +330,11 @@ def operator_findings(operator_root, website_root, operator_url=_OPERATOR_URL):
     from bot.operator import CRD_GLOB, SECTION, SOURCES, link_blocker
 
     website_root = Path(website_root)
-    linked, findings = _linked_crds(website_root), []
+    linked, findings, seen = _linked_crds(website_root), [], set()
     for path in sorted(Path(operator_root).glob(CRD_GLOB)):
         doc = load_crd(path)
         plural = crd_meta(doc)["plural"]
+        seen.add(plural)
         spec, status = crd_fields(doc, "spec"), crd_fields(doc, "status")
         by = {"spec": {r.name: r for r in spec}, "status": {r.name: r for r in status}}
         records = {"spec": spec, "status": status, "columns": crd_columns(doc, by)}
@@ -353,6 +371,15 @@ def operator_findings(operator_root, website_root, operator_url=_OPERATOR_URL):
             findings.append(Finding(plural, "page",
                 "unlinked" if reason else "missing-link", new=reason, old=remedy,
                 source_file=source_file, table_file=f"{SECTION}/{plural}.md"))
+    # A crd-ref naming a kind no CRD defines fails the Hugo build, and no /fix
+    # reaches it: link_pages skips any page that already carries a crd-ref.
+    for plural in sorted(linked.keys() - seen):
+        findings.append(Finding(plural, "page", "dangling",
+            new="no CRD defines it any more, so the site build fails",
+            old=f"Remove the `crd-ref` call, or point it at the kind that "
+                f"replaced `{plural}`",
+            source_file=f"{operator_url}/config/crd/bases",
+            table_file=linked[plural]))
     # Set once so a finding kind added later cannot forget it.
     for f in findings:
         f.target = OPERATOR
@@ -395,16 +422,16 @@ def format_report(findings, prev_body="") -> str:
             continue
         # A marker inside a collapsed group is invisible, which is the whole
         # point of having collapsed it, so the count rides on the header.
-        k = sum(1 for s in scns if any(f.kind == "unlinked" for f in by_scn[s]))
+        k = sum(1 for s in scns if any(f.kind in _NEEDS_HUMAN for f in by_scn[s]))
         need = f" · 🔴 {k} need{'s' if k == 1 else ''} a maintainer" if k else ""
         # Blank lines around the body, or GitHub renders the markdown as literal text.
         lines += [f"<details><summary><b>{group}</b> ({len(scns)}){need}</summary>", ""]
         for scn in scns:
             fs = by_scn[scn]
-            # A scenario of only unlinked findings gets guidance, not a command
+            # A scenario of only human-needed findings gets guidance, not a command
             # that would silently do nothing.
             target = next((f.target or f.scenario
-                           for f in fs if f.kind != "unlinked"), None)
+                           for f in fs if f.kind not in _NEEDS_HUMAN), None)
             label = _scenario_summary(fs)
             if target:
                 label += f". Fix with `/fix {target}`"
