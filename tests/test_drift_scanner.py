@@ -278,6 +278,26 @@ def test_a_tick_from_the_old_flat_layout_still_counts():
     assert "- [x]" in ds.format_report(fs, prev_body=flat)
 
 
+def test_every_param_name_reaches_the_issue_however_long_the_list():
+    """The table used to cap a cell at 90 chars, which hid 44% of the names in a
+    real scan. It is the answer to "what exactly changes", inside a <details> a
+    reader opened on purpose, so nothing is elided."""
+    names = [f"VERY_LONG_PARAMETER_NAME_NUMBER_{i:02}" for i in range(34)]
+    fs = [_mkf("missing-table", source=f"src-{i}", new=", ".join(names))
+          for i in range(4)]           # >3, so it renders as the collapsed table
+    body = ds.format_report(fs)
+    assert "..." not in body
+    for n in names:
+        assert f"`{n}`" in body
+
+
+def test_a_short_list_is_formatted_like_the_long_one():
+    """<=3 findings render as inline bullets instead of a table. Same styling, or
+    the issue looks half-formatted depending on how much drifted."""
+    body = ds.format_report([_mkf("missing-table", new="ALPHA, BETA")])
+    assert "`ALPHA`, `BETA`" in body
+
+
 def _unlinked(scenario, why="no hand-written page is mapped to it"):
     f = ds.Finding(scenario, "page", "unlinked", None, None, why, "s", "t")
     f.target = "operator"

@@ -187,8 +187,12 @@ def scan(krkn_hub_root, website_root, scenarios=None, hub_url=_DEFAULT_HUB_URL,
 def _finding_detail(f: Finding) -> str:
     """One detail bullet for a single source finding, with its file link."""
     if f.kind == "missing-table":
-        n = len(f.new.split(", ")) if f.new else 0
-        return f"{f.source}: no table yet, will add {n} params ({f.new}). source: {f.source_file}"
+        names = f.new.split(", ") if f.new else []
+        # Same formatting as the collapsed table, so the issue does not look
+        # half-styled depending on how many findings a scenario happened to have.
+        shown = ", ".join(f"`{n}`" for n in names)
+        return (f"{f.source}: no table yet, will add {len(names)} params "
+                f"({shown}). source: {f.source_file}")
     if f.kind == "missing":
         d = f" (default {f.new})" if f.new is not None else ""
         body = f"{f.source}: missing {f.param}{d}"
@@ -254,14 +258,14 @@ def _detail_block(fs) -> list[str]:
         lines += [f"Source: {source_file}", "", "| Source | Params | Names |", "| --- | --- | --- |"]
         for f in sorted(group, key=lambda x: x.source):
             if f.kind == "missing-table":
-                names = f.new or ""
-                count = len(names.split(", ")) if names else 0
+                names = (f.new or "").split(", ") if f.new else []
             else:
-                names = f.param or ""
-                count = 1
-            if len(names) > 90:
-                names = names[:90].rsplit(", ", 1)[0] + ", ..."
-            lines.append(f"| {f.source} | {count} | {names} |")
+                names = [f.param] if f.param else []
+            # Every name, never an ellipsis: this table is the answer to "what
+            # exactly changes", and a reader already expanded a <details> to
+            # reach it. Capping at 90 chars was hiding 44% of them.
+            shown = ", ".join(f"`{n}`" for n in names)
+            lines.append(f"| {f.source} | {len(names)} | {shown} |")
         lines.append("")
     lines += ["</details>", ""]
     return lines
