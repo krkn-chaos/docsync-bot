@@ -26,7 +26,7 @@ Both workflows clone all three sources. krkn-hub and krkn go together because a 
 
 The source URLs, the bot install URL, the target repo and `roles` already point at production. What is left:
 
-- pick the describer endpoint: `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` on the generation step. Leaving them unset falls back to a built-in host measured unreachable from GitHub Actions, which leaves every generated description blank while the run stays green
+- pick the describer endpoint: `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` on the generation step. Unset falls back to a built-in host measured unreachable from GitHub Actions, so every model-written description would be blank while the run stayed green. The krkn-operator target is unaffected: it never calls the model
 - recompile with `gh aw compile` after editing `doc-sync.md`
 
 Both workflows need the GitHub App: `APP_ID` as a repository variable and `APP_PRIVATE_KEY` as a secret. `drift-report.yml` uses it so the rolling issue has a stable author instead of `github-actions[bot]`.

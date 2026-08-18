@@ -1,12 +1,7 @@
 name: Docs drift report
 
-# Weekly, report-only scan of parameter drift for the krkn-hub and krknctl sources.
-# Posts or updates one rolling docs-drift issue with a checklist per scenario, each
-# finding linking the exact file and a suggested fix. Opens no PRs. Fixing is done
-# by commenting /fix <scenario> on the issue, which drives the Doc Sync workflow.
-#
-# Plain workflow rather than gh-aw: the report is derived from the sources with no
-# judgement involved, so there is nothing for an agent to decide.
+# Weekly report-only scan of all three sources into one rolling docs-drift issue.
+# Opens no PRs: fixing is done by commenting the /fix the issue names.
 
 on:
   schedule:

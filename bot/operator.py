@@ -43,9 +43,8 @@ def _records(doc):
 
 
 def _emit_one(website_root, scenario, source, records, source_ref):
-    # No existing-file rung. The CRD is regenerated from the Go types every
-    # build, so it is the only authority: keeping a description upstream just
-    # deleted would publish text the code no longer has.
+    # No existing-file rung: the CRD is regenerated from the Go types every
+    # build, so keeping a description just deleted upstream would publish stale text.
     descs, gaps = resolve_descriptions(scenario, records, {}, _no_model,
                                        borrow_source=BORROW)
     out = emit_data_file(website_root, scenario, source, records, descs, source_ref)
@@ -88,9 +87,8 @@ def _page(meta, sources):
     head = f'`{meta["group"]}/{meta["version"]}` &ensp; {meta["scope"]}'
     if meta["short"]:
         head += f' &ensp; short name `{meta["short"]}`'
-    # No weight: Hugo falls back to title order, which is the order wanted here.
-    # A weight would have to be recomputed as kinds arrive, and these pages are
-    # written once so an old one could never be renumbered.
+    # No weight: Hugo falls back to title order, which is what is wanted. A weight
+    # would need recomputing as kinds arrive, and these pages are written once.
     body = [
         "---",
         f'title: {meta["kind"]}',

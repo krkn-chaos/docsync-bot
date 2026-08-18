@@ -261,9 +261,8 @@ def _detail_block(fs) -> list[str]:
                 names = (f.new or "").split(", ") if f.new else []
             else:
                 names = [f.param] if f.param else []
-            # Every name, never an ellipsis: this table is the answer to "what
-            # exactly changes", and a reader already expanded a <details> to
-            # reach it. Capping at 90 chars was hiding 44% of them.
+            # Every name, never an ellipsis: a reader expanded a <details> to
+            # reach this, and the old 90-char cap hid 44% of them.
             shown = ", ".join(f"`{n}`" for n in names)
             lines.append(f"| {f.source} | {len(names)} | {shown} |")
         lines.append("")
@@ -347,9 +346,8 @@ def operator_findings(operator_root, website_root, operator_url=_OPERATOR_URL):
                     findings.append(Finding(plural, source, "extra", name,
                         old=table[name], source_file=source_file,
                         table_file=table_file))
-        # Two different things, and conflating them told maintainers to hand-edit
-        # Python for a link the bot adds itself. Ask what link_pages will do, not
-        # merely whether a link exists today.
+        # Ask what link_pages will do, not whether a link exists today: that
+        # conflation told maintainers to hand-edit Python for 9 automatic links.
         if plural not in linked:
             reason, remedy = link_blocker(website_root, plural) or (None, None)
             findings.append(Finding(plural, "page",
@@ -443,9 +441,8 @@ def main() -> None:
         findings += operator_findings(args.operator, args.website, args.operator_url)
 
     if not args.repo:
-        # The report carries emoji markers, and a Windows console defaults to
-        # cp1252, which cannot encode them. CI is UTF-8; a maintainer's laptop
-        # is not, and a preview run should not die on its own output.
+        # A Windows console is cp1252 and cannot encode the emoji markers. CI is
+        # UTF-8; a local preview run should not die on its own output.
         sys.stdout.reconfigure(encoding="utf-8")
         print(format_report(findings))
         return

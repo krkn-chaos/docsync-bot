@@ -1,7 +1,6 @@
 ---
-# Source workflow, compiled to doc-sync.lock.yml by `gh aw compile`.
-# All deterministic work runs in the custom steps below, before the agent.
-# The agent only commits the generated files and opens the pull request.
+# Source workflow, compiled to doc-sync.lock.yml by `gh aw compile`. All the
+# deterministic work runs in the steps below; the agent only opens the PR.
 
 on:
   slash_command:
@@ -18,8 +17,7 @@ on:
 permissions: read-all
 
 # Name a model matching copilot/*, anthropic/*, openai/*, google/* or gemini/*.
-# gh-aw's api-proxy steers on the model name and refuses anything else with a
-# bare 400: github/gh-aw#50113.
+# gh-aw's api-proxy refuses anything else with a bare 400: github/gh-aw#50113.
 engine:
   id: copilot
   model: gpt-4o-mini
@@ -49,8 +47,7 @@ steps:
         scenarios="$(printf '%s' "$COMMENT_BODY" | awk 'NR==1{$1="";print}')"
         if [ -z "$scenarios" ] && [ -n "$PR_NUMBER" ]; then
           # bot.targets, not a grep: a CRD plural is a group in data/params but
-          # only bot.operator regenerates it. Unit-tested, since /resync cannot
-          # be exercised on a fork.
+          # only bot.operator regenerates it. Unit-tested, /resync needs secrets.
           scenarios="$(gh api "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename' 2>/dev/null \
             | python3 -m bot.targets --website .)"
         fi
@@ -73,9 +70,8 @@ steps:
   - name: Clone krkn-hub source
     run: git clone --depth 1 https://github.com/krkn-chaos/krkn-hub.git "$RUNNER_TEMP/krkn-hub"
   - name: Clone krkn source
-    # Global krknctl params live here. Both sources are needed even for a single
-    # scenario: the bot builds a scenario table by leaving the globals out, so it
-    # has to know which ones they are.
+    # Global krknctl params live here. Both sources are needed even for one
+    # scenario: a scenario table is built by leaving the global params out.
     run: git clone --depth 1 https://github.com/krkn-chaos/krkn.git "$RUNNER_TEMP/krkn"
   - name: Clone krkn-operator source
     # The CRDs under config/crd/bases own the operator's API surface. They are
@@ -87,15 +83,8 @@ steps:
       KRKN_PATH: ${{ runner.temp }}/krkn
       KRKN_OPERATOR_PATH: ${{ runner.temp }}/krkn-operator
       GH_AW_REPORT_DIR: ${{ runner.temp }}
-      # This step runs before the firewall is installed, so it needs no
-      # network.allowed entry. Swap all three for any OpenAI-compatible
-      # endpoint. Leaving them unset falls back to a built-in host measured
-      # unreachable from GitHub Actions on 2026-08-13, which would leave every
-      # generated description blank while the run stayed green.
-      # The operator target never reaches the model: its CRDs describe themselves.
-      LLM_BASE_URL: https://api.githubcopilot.com
-      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-      LLM_MODEL: gpt-4o
+      # No LLM_* yet: which endpoint and credential is a separate decision. The
+      # operator target never reaches the model, so it is unaffected either way.
     run: |
       for target in ${{ steps.scn.outputs.scenarios }}; do
         echo "Generating: $target"
@@ -124,9 +113,8 @@ steps:
       git checkout -b "docs-sync-${{ github.run_number }}"
       git add -A
 
-      # Everything a reviewer needs goes in the commit message, which is written
-      # here and never passes through the agent. The PR body stays short enough
-      # that a small model cannot mangle it.
+      # Everything a reviewer needs goes in the commit message, written here and
+      # never through the agent, so a small model cannot mangle it.
       changed="$(git diff --cached --name-status)"
       added="$(printf '%s\n' "$changed" | grep -c '^A' || true)"
       modified="$(printf '%s\n' "$changed" | grep -c '^M' || true)"
@@ -149,8 +137,7 @@ steps:
       COMMIT_MSG
 
       # Appended as a file, never as shell source. An Actions expression is
-      # substituted into the script before bash parses it, which is the real
-      # injection point here; a heredoc body is not.
+      # substituted before bash parses it; a heredoc body is not.
       cat "$RUNNER_TEMP/gaps.md" >> "$RUNNER_TEMP/commit-msg.txt" 2>/dev/null || true
       git commit -s -F "$RUNNER_TEMP/commit-msg.txt" || echo "no changes to commit"
 
@@ -163,9 +150,8 @@ max-turns: 3
 timeout-minutes: 15
 
 safe-outputs:
-  # Threat detection is on. It is a second model call that reuses this engine, so
-  # turn it off when swapping to a rate-limited provider: `threat-detection:
-  # false`, here under safe-outputs and not under create-pull-request.
+  # A second model call reusing this engine. Turn it off for a rate-limited
+  # provider with `threat-detection: false`, here and not under create-pull-request.
   github-app:
     app-id: ${{ vars.APP_ID }}
     private-key: ${{ secrets.APP_PRIVATE_KEY }}

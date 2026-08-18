@@ -21,8 +21,7 @@ def resolve_descriptions(scenario, records, existing, llm_fn, published=None,
             out[r.name] = existing[r.name]
         elif r.borrowed_description:
             # Not this row's own source, so curated page prose outranks it. The
-            # label names where it came from: krknctl, or the field a CRD column
-            # points at.
+            # label names where it came from: krknctl, or a CRD column's field.
             out[r.name] = r.borrowed_description
             r.description_source = borrow_source
         else:
