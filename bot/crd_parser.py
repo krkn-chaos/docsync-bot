@@ -2,11 +2,17 @@
 
 Reads config/crd/bases/*.yaml, never the Go types: the YAML is generated from
 those comments by `make manifests`, so it cannot disagree with the code."""
+import re
 from pathlib import Path
 
 import yaml
 
 from bot.parser import ParamRecord
+
+# plural becomes a directory name, kind goes into YAML frontmatter. Kubernetes
+# requires these shapes already, so no real CRD is rejected.
+_PLURAL = re.compile(r"[a-z0-9][a-z0-9-]*")
+_KIND = re.compile(r"[A-Za-z][A-Za-z0-9]*")
 
 # ponytail: name heuristic. The upstream ask adds a real marker to the Go types;
 # swap to that when it lands.
@@ -17,15 +23,12 @@ _NOT_SECRET = ("ref", "type", "name", "uuid", "path", "id")
 
 
 def _text(node):
-    """A description, flattened and made safe to render.
+    """A description, flattened onto one line.
 
     controller-gen hard-wraps at 80 columns, so the raw value is multi-line and
-    breaks out of its table cell. The angle brackets matter more: a Go doc
-    comment is plain text, so <path> and <uuid> are placeholders, but the
-    shortcode runs descriptions through markdownify and a browser then drops
-    them as unknown tags."""
-    text = " ".join((node.get("description") or "").split())
-    return text.replace("<", "&lt;").replace(">", "&gt;") or None
+    breaks out of its table cell. Escaping happens at the emit sink, in
+    emitter._param_dict, so every source gets it and not just this one."""
+    return " ".join((node.get("description") or "").split()) or None
 
 
 def _default(node):
@@ -160,4 +163,14 @@ def crd_meta(doc) -> dict:
 
 
 def load_crd(path) -> dict:
-    return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    """The doc, with its names checked. Every caller loads then reads names, and
+    this is the only place that still knows which file they came from."""
+    doc = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    try:
+        names = doc["spec"]["names"]
+        plural, kind = names["plural"], names["kind"]
+    except (TypeError, KeyError) as e:
+        raise ValueError(f"{path}: not a CRD, missing {e}") from e
+    if not _PLURAL.fullmatch(plural) or not _KIND.fullmatch(kind):
+        raise ValueError(f"{path}: bad names {plural!r}/{kind!r}")
+    return doc

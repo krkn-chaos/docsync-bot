@@ -145,14 +145,6 @@ def test_a_field_that_holds_a_secret_is_marked():
     assert spec["token"].secret is True
 
 
-def test_angle_brackets_are_escaped_so_they_survive_markdownify():
-    """A Go doc comment is plain text, so <uuid> is a placeholder. Left raw, the
-    shortcode's markdownify hands it to the browser as a tag and it disappears."""
-    spec = by_name(crd_fields(crd("krkntargetrequests"), "spec"))
-    assert "uuid=&lt;uuid&gt;" in spec["uuid"].description
-    assert "<uuid>" not in spec["uuid"].description
-
-
 def test_the_storage_version_is_the_one_documented():
     """versions are emitted name-sorted, so a later v1beta1 would leave
     versions[0] documenting v1alpha1 forever."""
@@ -213,3 +205,27 @@ def test_a_key_field_is_marked_secret_but_a_reference_to_one_is_not():
     # _NOT_SECRET still wins, which is what keeps "key" safe to add.
     for leaf in ("apiKeyRef", "keyName", "spec.signingKeyPath", "keyType"):
         assert _is_secret(leaf) is False, leaf
+
+
+def test_a_crd_whose_plural_would_escape_the_data_directory_is_refused(tmp_path):
+    """plural becomes a directory under data/params/. Unchecked, a crafted CRD
+    writes anywhere in the website checkout and git add -A commits it."""
+    from bot.crd_parser import load_crd
+    bad = tmp_path / "evil.yaml"
+    bad.write_text('spec:\n  group: g\n  scope: Namespaced\n  names:\n'
+                   '    kind: Evil\n    plural: ../../../.github/workflows\n'
+                   '  versions: []\n', encoding="utf-8")
+    with pytest.raises(ValueError) as e:
+        load_crd(bad)
+    assert "evil.yaml" in str(e.value) and "bad names" in str(e.value)
+
+
+def test_a_file_that_is_not_a_crd_names_itself(tmp_path):
+    """A stray kustomization.yaml in config/crd/bases used to abort the run with
+    a bare KeyError naming no file."""
+    from bot.crd_parser import load_crd
+    stray = tmp_path / "kustomization.yaml"
+    stray.write_text("resources:\n  - a.yaml\n", encoding="utf-8")
+    with pytest.raises(ValueError) as e:
+        load_crd(stray)
+    assert "kustomization.yaml" in str(e.value) and "not a CRD" in str(e.value)
