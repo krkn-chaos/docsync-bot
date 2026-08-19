@@ -300,16 +300,12 @@ _OPERATOR_URL = "https://github.com/krkn-chaos/krkn-operator/blob/main"
 
 
 def _linked_crds(website_root) -> dict[str, str]:
-    """Plural -> the hand-written operator page whose crd-ref call points at it.
-    The reference pages themselves are skipped: they are the link target.
+    """Plural -> the hand-written page whose crd-ref points at it. Reference pages
+    are skipped, they are the target. The page comes too, so a call naming a kind
+    that no longer exists names the file to edit.
 
-    The page is carried, not just the plural, so a call naming a kind that no
-    longer exists can be reported against the file a maintainer has to edit.
-
-    A call anywhere counts, including on a page that does not describe that kind.
-    Judging whether a page is the right home is editorial, and link_pages still
-    writes the mapped page, so a misplaced call costs a stray link, not a broken
-    one. Documented in the guides as a known boundary."""
+    A call on the wrong page still counts as linked. That is a known boundary,
+    documented in the guides."""
     from bot.operator import PAGES_ROOT
     root = Path(website_root) / PAGES_ROOT
     if not root.exists():

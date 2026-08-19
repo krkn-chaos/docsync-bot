@@ -1,6 +1,10 @@
 # Param-Table Template
 
-A Hugo shortcode and data-file schema that renders scenario parameter tables on the [krkn-chaos website](https://github.com/krkn-chaos/website) from data files. It lets the docs-sync bot ([#320](https://github.com/krkn-chaos/website/issues/320)) keep tables current by writing data only, never editing human-written markdown.
+A Hugo shortcode and data-file schema that renders scenario parameter tables on the [krkn-chaos website](https://github.com/krkn-chaos/website) from data files.
+
+It lets the docs-sync bot ([#320](https://github.com/krkn-chaos/website/issues/320)) keep those tables current by writing data only, never editing human-written markdown.
+
+&ensp;
 
 ## What is here
 
@@ -10,6 +14,8 @@ website-template/
   layouts/shortcodes/crd-ref.html            # links prose to a generated CRD page
   examples/data/params/<group>/<table>.yaml  # example data files
 ```
+
+&ensp;
 
 ## How it works
 
@@ -59,7 +65,13 @@ params:
     required: false                     # optional
 ```
 
-`name`, `type`, and `default` come deterministically from the source; only `description` may come from the LLM. On a krkn-operator file, `source_repo` holds the section name (`spec`, `status`, `columns`) rather than a repo, and nothing there comes from the LLM.
+`name`, `type` and `default` come deterministically from the source. Only
+`description` may come from the model.
+
+On a krkn-operator file, `source_repo` holds the section name (`spec`, `status`,
+`columns`) rather than a repo, and nothing on it comes from the model at all.
+
+&ensp;
 
 ## Installing into the website
 
@@ -67,10 +79,14 @@ params:
 2. Add the `data/params/<group>/<table>.yaml` files.
 3. Replace each markdown table in `_tab-<source>.md` with the shortcode call. Surrounding prose stays untouched.
 
-Install the shortcodes before the first data files land: a `param-table` call with no shortcode installed, or a data file with no call, both fail the build.
+Install the shortcodes before the first data files land. A `param-table` call with no shortcode installed, and a data file with no call, both fail the build.
+
+&ensp;
 
 ## Tests
 
-`tests/` holds a Hugo build harness with 14 edge-case tests (column auto-hide, numeric-zero default, missing and empty data, markdown descriptions, and the shipped example files). Run with `pytest`.
+`tests/` holds a Hugo build harness with 14 edge-case tests: column auto-hide,
+numeric-zero default, missing and empty data, markdown descriptions, and the
+shipped example files. Run with `pytest`.
 
-The bot's own unit tests (added with the bot package) live in the same `tests/` folder, they coexist.
+The bot's own unit tests live in the same folder. They coexist.
