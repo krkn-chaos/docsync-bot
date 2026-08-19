@@ -191,3 +191,22 @@ def test_a_non_krknctl_source_still_emits_values_and_secret():
                                       {"role": "The role."}, "r"))["params"][0]
     assert p["secret"] is True
     assert p["possible_values"] == ["user", "admin"]
+
+
+def test_angle_brackets_are_escaped_so_they_survive_markdownify():
+    """param-table markdownifies the description and the site sets goldmark
+    unsafe, so a raw <selector> reaches the browser as a tag and disappears."""
+    p = yaml.safe_load(emit_data_text(
+        "node-scenarios", "krkn-hub", [ParamRecord(name="NODE_SELECTOR")],
+        {"NODE_SELECTOR": 'Format "<selector>=<value>".'}, "abc"))["params"][0]
+    assert p["description"] == 'Format "&lt;selector&gt;=&lt;value&gt;".'
+
+
+def test_escaping_a_published_description_again_is_a_no_op():
+    """The published-table rung reads back what this wrote. & is never escaped,
+    which is what keeps the second pass from producing &amp;lt;."""
+    once = 'Format "&lt;selector&gt;=&lt;value&gt;" & more'
+    p = yaml.safe_load(emit_data_text(
+        "node-scenarios", "krkn-hub", [ParamRecord(name="X")],
+        {"X": once}, "abc"))["params"][0]
+    assert p["description"] == once
