@@ -52,13 +52,14 @@ krkn-template/          # trigger workflow for krkn (see its own README)
 krkn-operator-template/ # trigger workflow for krkn-operator (see its own README)
 ```
 
-A description resolves down five rungs, stopping at the first that answers:
+A description resolves down six rungs, stopping at the first that answers:
 
 1. the source file
 2. the published table the shortcode is about to replace
 3. the existing data file
-4. the other source
-5. the model
+4. the scenario doc, `krkn-hub/docs/<scenario>.md`
+5. the other source
+6. the model
 
 Everything below rung 1 is reported, so a cell it could not fill from source is
 visible rather than silent.

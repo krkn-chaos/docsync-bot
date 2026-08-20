@@ -2,13 +2,15 @@ _NO_SOURCE = "no description in any source and no published row"
 
 
 def resolve_descriptions(scenario, records, existing, llm_fn, published=None,
-                         borrow_source="krknctl"):
+                         borrow_source="krknctl", doc=None):
     """Return (descriptions_by_name, gaps), gaps being (name, filled_from, text)
     for each description not taken from a source file.
-    Priority: source -> published table -> existing file -> other source -> LLM.
+    Priority: source -> published table -> existing file -> scenario doc ->
+    other source -> LLM.
     The published table is human-written, so it ranks second and wins only once:
     the run that reads it also removes it."""
     published = published or {}
+    doc = doc or {}
     out, gaps, residual = {}, [], []
     for r in records:
         if r.description:
@@ -19,6 +21,12 @@ def resolve_descriptions(scenario, records, existing, llm_fn, published=None,
             gaps.append((r.name, "published-table", out[r.name]))
         elif existing.get(r.name):
             out[r.name] = existing[r.name]
+        elif doc.get(r.name):
+            # krkn-hub documents most params in docs/<scenario>.md, not beside
+            # the export. Below the published table, above the model.
+            out[r.name] = doc[r.name]
+            r.description_source = "hub-doc"
+            gaps.append((r.name, "hub-doc", out[r.name]))
         elif r.borrowed_description:
             # Not this row's own source, so curated page prose outranks it. The
             # label names where it came from: krknctl, or a CRD column's field.
