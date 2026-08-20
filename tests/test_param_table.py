@@ -319,3 +319,34 @@ def test_example_service_hijacking_renders_two_columns(site):
     proc = site.build()
     assert proc.returncode == 0, proc.stderr
     assert headers(site.html(rel)) == ["Parameter", "Description"]
+
+
+def _crd_ref_page(site, crd):
+    """A page carrying one crd-ref call, plus the index it resolves against."""
+    (site.root / "data" / "krkn_operator_crds.yaml").write_text(
+        f"{crd}:\n  kind: KrknUser\n  short: ku\n  fields: 9\n", encoding="utf-8")
+    (site.root / "content" / "users.md").write_text(
+        f'---\ntitle: users\n---\n\n{{{{< crd-ref crd="{crd}" >}}}}\n', encoding="utf-8")
+    return "users/index.html"
+
+
+def href(html):
+    return BeautifulSoup(html, "html.parser").select_one("a.krkn-crd-ref")["href"]
+
+
+def test_crd_ref_links_to_the_generated_reference(site):
+    rel = _crd_ref_page(site, "krknusers")
+    proc = site.build()
+    assert proc.returncode == 0, proc.stderr
+    assert href(site.html(rel)) == "/docs/krkn-operator/api-reference/krknusers/"
+
+
+def test_crd_ref_keeps_the_site_base_path(tmp_path):
+    """A root-absolute href drops the base path, so every link 404s on a site
+    served under a sub-path. relURL is what puts it back."""
+    from tests.conftest import Site
+    site = Site(tmp_path, base_url="http://example.org/chaos/")
+    rel = _crd_ref_page(site, "krknusers")
+    proc = site.build()
+    assert proc.returncode == 0, proc.stderr
+    assert href(site.html(rel)) == "/chaos/docs/krkn-operator/api-reference/krknusers/"
