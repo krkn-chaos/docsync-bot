@@ -8,6 +8,7 @@ from bot.parser import (
     is_global,
     extract_env_params,
     extract_krknctl_params,
+    doc_descriptions,
     require_sources,
 )
 
@@ -488,3 +489,55 @@ def test_infra_params_are_global_whatever_their_default():
     """IMAGE is set by the run.sh wrapper, so a scenario-local value is still
     not something a reader configures."""
     assert is_global(ParamRecord(name="IMAGE", default="quay.io/other"), {})
+
+
+def _hub(tmp_path, scenario, doc_text=None):
+    """A krkn-hub layout: the scenario dir, and docs/<scenario>.md beside it."""
+    (tmp_path / scenario).mkdir()
+    if doc_text is not None:
+        (tmp_path / "docs").mkdir(exist_ok=True)
+        (tmp_path / "docs" / f"{scenario}.md").write_text(doc_text, encoding="utf-8")
+    return tmp_path / scenario
+
+
+def test_doc_table_is_read_in_both_shapes(tmp_path):
+    """krkn-hub uses "|NAME| desc |" on some pages and "NAME | desc |" on others."""
+    scn = _hub(tmp_path, "http-load", """\
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+|HTTP2 | Enable HTTP/2 protocol support | false |
+RUNS | Number of times to run the load | 1 |
+""")
+    assert doc_descriptions(scn) == {
+        "HTTP2": "Enable HTTP/2 protocol support",
+        "RUNS": "Number of times to run the load"}
+
+
+def test_the_doc_table_header_and_rule_are_not_rows(tmp_path):
+    """"Parameter" is not upper snake case and the rule has no name cell, so
+    neither can reach a data file."""
+    scn = _hub(tmp_path, "svc", """\
+| Parameter | Description | Default |
+| --- | --- | --- |
+| TIMEOUT | Seconds to wait | 30 |
+""")
+    assert doc_descriptions(scn) == {"TIMEOUT": "Seconds to wait"}
+
+
+def test_the_second_cell_wins_and_the_default_is_not_taken(tmp_path):
+    """Every krkn-hub table is Parameter | Description | Default, so the
+    description is the second cell, never the third."""
+    scn = _hub(tmp_path, "svc", "| DURATION | Seconds the outage lasts | 600 |\n")
+    assert doc_descriptions(scn) == {"DURATION": "Seconds the outage lasts"}
+
+
+def test_a_repeated_param_keeps_the_first_row(tmp_path):
+    """Some docs list a param once per mode. The first is the general one."""
+    scn = _hub(tmp_path, "svc", "| MODE | The general meaning | a |\n"
+                                "| MODE | A mode-specific aside | b |\n")
+    assert doc_descriptions(scn) == {"MODE": "The general meaning"}
+
+
+def test_a_scenario_with_no_doc_is_not_an_error(tmp_path):
+    """Nine scenarios have no docs/<name>.md, and they still have to emit."""
+    assert doc_descriptions(_hub(tmp_path, "dummy-scenario")) == {}

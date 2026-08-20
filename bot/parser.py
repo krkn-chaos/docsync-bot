@@ -146,6 +146,26 @@ def extract_env_params(path: Path) -> list[ParamRecord]:
 _REF_RE = re.compile(r'^\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})$')
 
 
+# Both "|NAME| desc |" and "NAME | desc |" are in use, so the leading pipe is
+# optional. Upper snake case only, which no header cell matches.
+_DOC_ROW_RE = re.compile(r'^\|?\s*([A-Z][A-Z0-9_]{2,})\s*\|([^|]*)\|', re.M)
+
+
+def doc_descriptions(scenario_dir: Path) -> dict[str, str]:
+    """name -> description from krkn-hub/docs/<scenario>.md, or {} if absent.
+    Deterministic, so these never reach the model."""
+    doc = Path(scenario_dir).parent / "docs" / f"{Path(scenario_dir).name}.md"
+    if not doc.exists():
+        return {}
+    out = {}
+    for name, text in _DOC_ROW_RE.findall(doc.read_text(encoding="utf-8-sig",
+                                                        errors="replace")):
+        text = " ".join(text.split())
+        if text and name not in out:
+            out[name] = text
+    return out
+
+
 def _resolve_references(records: dict) -> None:
     """Replace a default that is only a pointer at another variable.
     "$ALERTS_PATH" tells a reader nothing, so look up the sibling it names. No

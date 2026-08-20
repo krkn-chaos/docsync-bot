@@ -90,3 +90,39 @@ def test_the_published_table_is_tried_before_the_llm():
     out, gaps = resolve_descriptions("scn", recs, {}, fake_llm,
                                      published={"X": "from page"})
     assert out["X"] == "from page"
+
+
+def test_scenario_doc_fills_a_param_env_sh_leaves_bare():
+    """krkn-hub documents most params in docs/<scenario>.md, not beside the
+    export. Without this rung they reach the model, which correctly declines."""
+    recs = [ParamRecord(name="HTTP2")]
+    out, gaps = resolve_descriptions(
+        "http-load", recs, {}, lambda s, n: {},
+        doc={"HTTP2": "Enable HTTP/2 protocol support"})
+    assert out["HTTP2"] == "Enable HTTP/2 protocol support"
+    assert recs[0].description_source == "hub-doc"
+    # Reported, so the commit message says where the wording came from. It is
+    # not the row's own source file, so a reviewer has to be able to see it.
+    assert gaps == [("HTTP2", "hub-doc", "Enable HTTP/2 protocol support")]
+
+
+def test_a_curated_published_row_outranks_the_scenario_doc():
+    """The published table is the one rung a human wrote for this site, so the
+    doc must not overwrite it on adoption."""
+    recs = [ParamRecord(name="TIMEOUT")]
+    out, _ = resolve_descriptions(
+        "http-load", recs, {}, lambda s, n: {},
+        published={"TIMEOUT": "Curated wording from the page"},
+        doc={"TIMEOUT": "Per-request timeout (e.g. 10s, 30s)"})
+    assert out["TIMEOUT"] == "Curated wording from the page"
+
+
+def test_the_doc_never_costs_a_model_call():
+    recs = [ParamRecord(name="RUNS")]
+
+    def boom(scenario, names):
+        raise AssertionError(f"model called for {names}")
+
+    out, _ = resolve_descriptions("http-load", recs, {}, boom,
+                                  doc={"RUNS": "Number of times it runs"})
+    assert out["RUNS"] == "Number of times it runs"
