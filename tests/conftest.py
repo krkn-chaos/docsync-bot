@@ -23,7 +23,7 @@ def _no_live_model_calls(monkeypatch):
 # Shortcode Hugo build harness (used only by the shortcode tests). hugo is looked
 # up lazily at build time so the bot tests can run without hugo or npm installed.
 REPO = Path(__file__).resolve().parents[1]                       # docsync-bot
-SHORTCODE = REPO / "website-template" / "layouts" / "shortcodes" / "param-table.html"
+SHORTCODES = REPO / "website-template" / "layouts" / "shortcodes"
 
 
 def find_hugo() -> str:
@@ -50,7 +50,7 @@ def find_hugo() -> str:
 
 
 HUGO_CONFIG = """\
-baseURL: http://example.org/
+baseURL: {base_url}
 title: param-table harness
 disableKinds: [taxonomy, term, sitemap, robotsTXT, rss]
 markup:
@@ -65,16 +65,19 @@ SINGLE = "{{ .Content }}"
 class Site:
     """A throwaway minimal Hugo site for testing the param-table shortcode in isolation."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, base_url: str = "http://example.org/"):
         self.root = root
         (root / "layouts" / "shortcodes").mkdir(parents=True)
         (root / "layouts" / "_default").mkdir(parents=True)
         (root / "content").mkdir(parents=True)
         (root / "data").mkdir(parents=True)
-        (root / "hugo.yaml").write_text(HUGO_CONFIG, encoding="utf-8")
+        (root / "hugo.yaml").write_text(
+            HUGO_CONFIG.format(base_url=base_url), encoding="utf-8")
         (root / "layouts" / "_default" / "single.html").write_text(SINGLE, encoding="utf-8")
         (root / "layouts" / "index.html").write_text(SINGLE, encoding="utf-8")
-        shutil.copy(SHORTCODE, root / "layouts" / "shortcodes" / "param-table.html")
+        # All of them, so a shortcode calling another still resolves.
+        for sc in SHORTCODES.glob("*.html"):
+            shutil.copy(sc, root / "layouts" / "shortcodes" / sc.name)
 
     def data(self, scenario: str, source: str, yaml_text: str):
         d = self.root / "data" / "params" / scenario

@@ -1,7 +1,8 @@
 _NO_SOURCE = "no description in any source and no published row"
 
 
-def resolve_descriptions(scenario, records, existing, llm_fn, published=None):
+def resolve_descriptions(scenario, records, existing, llm_fn, published=None,
+                         borrow_source="krknctl"):
     """Return (descriptions_by_name, gaps), gaps being (name, filled_from, text)
     for each description not taken from a source file.
     Priority: source -> published table -> existing file -> other source -> LLM.
@@ -19,10 +20,10 @@ def resolve_descriptions(scenario, records, existing, llm_fn, published=None):
         elif existing.get(r.name):
             out[r.name] = existing[r.name]
         elif r.borrowed_description:
-            # krknctl is not env.sh's source, it is the other page's. Terse and
-            # link-free, so curated page prose outranks it.
+            # Not this row's own source, so curated page prose outranks it. The
+            # label names where it came from: krknctl, or a CRD column's field.
             out[r.name] = r.borrowed_description
-            r.description_source = "krknctl"
+            r.description_source = borrow_source
         else:
             residual.append(r.name)
     if residual:

@@ -5,10 +5,28 @@ import os
 import re
 from pathlib import Path
 
-_FIX_HINT = """\
-These render as an empty cell. Fix by adding a trailing comment in env.sh:
-  export BLOCK_SIZE=${BLOCK_SIZE:=1024}   # Size of each written block
-"""
+# The fix lives in a different file per source, so one hint would misdirect
+# whoever picks up a gap from any other one.
+_FIX_HINTS = {
+    "krkn-hub": ("add a trailing comment in env.sh, e.g. "
+                 "`export BLOCK_SIZE=${BLOCK_SIZE:=1024}   # Size of each block`"),
+    "krknctl": 'set `"description"` on the parameter in `krknctl-input.json`',
+    "spec": "add a Go doc comment in `api/v1alpha1`, then run `make manifests`",
+    "status": "add a Go doc comment in `api/v1alpha1`, then run `make manifests`",
+    "columns": ("give the printcolumn a `description=`, or describe the field "
+                "its jsonPath names"),
+}
+
+
+def _fix_hint(blank):
+    by_hint = {}
+    for row in blank:
+        hint = _FIX_HINTS.get(row[1])
+        if hint:
+            by_hint.setdefault(hint, set()).add(row[1])
+    lines = ["These render as an empty cell."]
+    lines += [f"- {', '.join(sorted(s))}: {h}" for h, s in sorted(by_hint.items())]
+    return "\n".join(lines) + "\n"
 
 FILLED = ("published-table", "llm")
 ORPHAN = "orphan"
@@ -49,7 +67,7 @@ def render(gaps):
                 "| Scenario | Parameter | Why |",
                 "| --- | --- | --- |"]
         out += [f"| {s} | {p} | {_cell(why)} |" for s, _, p, _f, why in blank]
-        out += ["", _FIX_HINT]
+        out += ["", _fix_hint(blank)]
     if orphan:
         out += [f"### Dropped, not in any source ({len(orphan)})\n",
                 "| Scenario | Source | Parameter |",

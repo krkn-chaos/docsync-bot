@@ -193,8 +193,10 @@ def test_a_removed_param_is_marked_as_needing_a_look():
     """extra is the only kind where /fix deletes a documented row."""
     fs = [_mkf("stale", param="x", old="1", new="2"), _mkf("extra", param="GONE", old="9")]
     s = ds._scenario_summary(fs)
-    assert "Needs a look" in s and "1 param" in s
+    assert "Review first" in s and "1 param" in s
     assert "Safe to regenerate" not in s
+    # /fix does remove the row, so this asks for a look, not for a maintainer.
+    assert "Maintainer needed" not in s
 
 
 def test_long_group_lists_are_collapsed_not_inlined():
@@ -227,3 +229,105 @@ def test_a_group_missing_from_a_shared_file_is_still_missing_table(tmp_path):
     fs = ds.global_findings(hub, krkn, web)
     ctl = [f for f in fs if f.source == "krknctl-cerberus"]
     assert [f.kind for f in ctl] == ["missing"], "cerberus rows absent -> reported"
+
+
+def _f(scenario, source="krkn-hub", kind="missing", target=None, param="P"):
+    f = ds.Finding(scenario, source, kind, param, source_file="s", table_file="t")
+    f.target = target
+    return f
+
+
+def test_each_source_gets_its_own_collapsed_section():
+    """Every source drifting at once is hundreds of lines, so the reader opens the
+    one they care about instead of scrolling past the rest."""
+    md = ds.format_report([_f("node-scenarios"),
+                           _f("globals"),
+                           _f("krknusers", source="spec", target="operator")])
+    assert "<summary><b>krkn-hub scenarios</b> (1)</summary>" in md
+    assert "<summary><b>Global parameters</b> (1)</summary>" in md
+    assert "<summary><b>krkn-operator CRDs</b> (1)</summary>" in md
+    # Fixed order, so the body only changes when the findings do.
+    assert (md.index("krkn-hub scenarios</b>") < md.index("Global parameters</b>")
+            < md.index("krkn-operator CRDs</b>"))
+
+
+def test_a_source_with_no_drift_gets_no_section():
+    md = ds.format_report([_f("node-scenarios")])
+    assert md.count("<details><summary>") == 1
+    assert "krkn-operator CRDs" not in md
+
+
+def test_a_tick_survives_the_move_into_a_collapsed_section():
+    """The marker, not the layout, is what a tick is keyed on, so regrouping must
+    not silently untick everything a maintainer already handled."""
+    first = ds.format_report([_f("node-scenarios")])
+    ticked = first.replace("- [ ]", "- [x]", 1)
+    again = ds.format_report([_f("node-scenarios")], prev_body=ticked)
+    assert "- [x]" in again
+
+
+def test_a_tick_from_the_old_flat_layout_still_counts():
+    """The rolling issue predates the collapsed sections, so the first run after
+    this change reads a body that has no <details> in it at all."""
+    fs = [_f("node-scenarios")]
+    label = ds.format_report(fs).split("- [ ] ", 1)[1].splitlines()[0]
+    flat = ("### Docs drift report\n\n"
+            "<!-- drift:node-scenarios -->\n"
+            "#### node-scenarios\n"
+            f"- [x] {label}\n")
+    assert "- [x]" in ds.format_report(fs, prev_body=flat)
+
+
+def test_every_param_name_reaches_the_issue_however_long_the_list():
+    """The table used to cap a cell at 90 chars, which hid 44% of the names in a
+    real scan. It is the answer to "what exactly changes", inside a <details> a
+    reader opened on purpose, so nothing is elided."""
+    names = [f"VERY_LONG_PARAMETER_NAME_NUMBER_{i:02}" for i in range(34)]
+    fs = [_mkf("missing-table", source=f"src-{i}", new=", ".join(names))
+          for i in range(4)]           # >3, so it renders as the collapsed table
+    body = ds.format_report(fs)
+    assert "..." not in body
+    for n in names:
+        assert f"`{n}`" in body
+
+
+def test_a_short_list_is_formatted_like_the_long_one():
+    """<=3 findings render as inline bullets instead of a table. Same styling, or
+    the issue looks half-formatted depending on how much drifted."""
+    body = ds.format_report([_mkf("missing-table", new="ALPHA, BETA")])
+    assert "`ALPHA`, `BETA`" in body
+
+
+def _unlinked(scenario, why="no hand-written page is mapped to it"):
+    f = ds.Finding(scenario, "page", "unlinked", None, None, why, "s", "t")
+    f.target = "operator"
+    return f
+
+
+def test_the_group_header_counts_what_needs_a_maintainer():
+    """A red marker inside a collapsed group is invisible, which would defeat the
+    collapse. Only unlinked counts: /fix handles everything else."""
+    md = ds.format_report([_unlinked("krknusers"), _unlinked("krknwebhooks"),
+                           _f("krkngraphruns", kind="missing-link", target="operator")])
+    assert "<b>krkn-operator CRDs</b> (3) · 🔴 2 need a maintainer" in md
+
+
+def test_one_maintainer_item_reads_as_singular():
+    md = ds.format_report([_unlinked("krknusers")])
+    assert "🔴 1 needs a maintainer" in md
+
+
+def test_a_clean_group_header_stays_a_bare_count():
+    """No suffix when nothing is blocked, so the body only changes with findings."""
+    md = ds.format_report([_f("node-scenarios"), _f("pod-scenarios")])
+    assert "<b>krkn-hub scenarios</b> (2)</summary>" in md
+    assert "🔴" not in md
+
+
+def test_a_tick_set_before_the_marker_existed_comes_back_unticked():
+    """Labels changed, so every box resets once. It has to reset rather than
+    carry over: the old label made a claim about /fix that was wrong."""
+    fs = [_unlinked("krknusers")]
+    old = ("### Docs drift report\n\n<!-- drift:krknusers -->\n#### krknusers\n"
+           "- [x] reference page exists but nothing links to it. **Needs a human**\n")
+    assert "- [ ]" in ds.format_report(fs, prev_body=old)
