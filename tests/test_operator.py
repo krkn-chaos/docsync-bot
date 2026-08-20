@@ -352,7 +352,8 @@ def test_a_mixed_group_keeps_the_command_and_flags_the_part_it_cannot_do():
                            new="its page `usage/jobs.md` does not exist",
                            target="operator")])
     assert "`/fix operator`" in md
-    assert "one link `/fix` cannot add" in md
+    # Not "one link": _NEEDS_HUMAN also covers a table no /fix can retire.
+    assert "one thing `/fix` cannot do" in md
     # The command covers the rest, so the blocker has to be the specific one.
     assert "its page `usage/jobs.md` does not exist" in md
 
@@ -444,3 +445,59 @@ def test_a_crd_ref_naming_a_removed_kind_is_reported_as_a_maintainer_job(repo):
     # The file to edit, and no command that would silently do nothing.
     assert "administration/legacy.md" in md
     assert "Fix with `/fix" not in md
+
+
+def _drop_section(crd: Path, section: str):
+    """Remove a whole section from a CRD, as an upstream deletion would."""
+    doc = yaml.safe_load(crd.read_text(encoding="utf-8"))
+    for v in doc["spec"]["versions"]:
+        v["schema"]["openAPIV3Schema"]["properties"].pop(section, None)
+    crd.write_text(yaml.safe_dump(doc), encoding="utf-8")
+
+
+def test_drift_reports_a_table_whose_source_section_is_gone(repo):
+    """Qodo finding 1. emit skips an empty section, so the generated status.yaml
+    stays published and the page keeps calling param-table on it."""
+    from bot.drift_scanner import operator_findings
+    run(repo)
+    assert (repo / "website/data/params/krknusers/status.yaml").exists()
+
+    _drop_section(repo / "operator/config/crd/bases/krkn.krkn-chaos.dev_krknusers.yaml",
+                  "status")
+    orphans = [f for f in operator_findings(repo / "operator", repo / "website")
+               if f.kind == "orphan-table"]
+    assert [(f.scenario, f.source) for f in orphans] == [("krknusers", "status")]
+    # The page has to be edited too, so it points at the page, not the data file.
+    assert orphans[0].table_file.endswith("api-reference/krknusers.md")
+
+
+def test_a_dropped_section_is_a_maintainer_job_not_a_fix(repo):
+    """Deleting the data file alone reds the build: the page still calls it."""
+    from bot.drift_scanner import operator_findings
+    run(repo)
+    _drop_section(repo / "operator/config/crd/bases/krkn.krkn-chaos.dev_krknusers.yaml",
+                  "status")
+    fs = [f for f in operator_findings(repo / "operator", repo / "website")
+          if f.scenario == "krknusers"]
+    md = _report([f for f in fs if f.kind == "orphan-table"])
+    assert "🔴 **Maintainer needed:**" in md
+    # No command offered, since running one would do nothing here.
+    assert "Fix with" not in md
+    assert "still published" in md
+
+
+def test_two_crds_claiming_one_plural_are_refused(repo):
+    """Qodo finding 2. The plural is both the directory and the index key, and
+    Kubernetes only enforces it within one group, so two groups could collide."""
+    bases = repo / "operator" / "config" / "crd" / "bases"
+    src = bases / "krkn.krkn-chaos.dev_krknusers.yaml"
+    doc = yaml.safe_load(src.read_text(encoding="utf-8"))
+    doc["spec"]["group"] = "other.krkn-chaos.dev"
+    doc["metadata"]["name"] = "krknusers.other.krkn-chaos.dev"
+    dup = bases / "other.krkn-chaos.dev_krknusers.yaml"
+    dup.write_text(yaml.safe_dump(doc), encoding="utf-8")
+
+    with pytest.raises(ValueError) as e:
+        operator.emit(repo / "website", repo / "operator")
+    # Both files, since neither is obviously the wrong one.
+    assert src.name in str(e.value) and dup.name in str(e.value)

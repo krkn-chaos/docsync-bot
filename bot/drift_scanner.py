@@ -25,7 +25,7 @@ _HUMAN = "🔴 **Maintainer needed:**"
 _REVIEW = "⚠️ **Review first:**"
 # Kinds no /fix can act on. Named once so a kind added later cannot be left out
 # of the red marker, the header count and the suppressed command.
-_NEEDS_HUMAN = ("unlinked", "dangling")
+_NEEDS_HUMAN = ("unlinked", "dangling", "orphan-table")
 
 _MARKER_RE = re.compile(r'<krkn-hub-scenario\s+id="([^"]+)"')
 _SOURCES = (("krkn-hub", "env.sh"), ("krknctl", "krknctl-input.json"))
@@ -39,6 +39,7 @@ class Finding:
     source: str            # "krkn-hub" | "krknctl" | a CRD section | "page"
     # "missing-table" | "missing" | "stale" | "extra" | "missing-link" | _NEEDS_HUMAN
     # "missing-link" is a link /fix does add; _NEEDS_HUMAN kinds it provably cannot.
+    # "orphan-table": the source section is gone, its published table is not.
     kind: str
     param: str | None = None
     # These two are read per kind, as they already are for stale and missing-table.
@@ -225,7 +226,7 @@ def _scenario_summary(fs) -> str:
     kinds = {f.kind for f in fs}
     if kinds == {"unlinked"}:
         return f"reference page exists but nothing links to it. {_HUMAN} {fs[0].new}"
-    if kinds == {"dangling"}:
+    if kinds == {"dangling"} or kinds == {"orphan-table"}:
         return f"{_HUMAN} {fs[0].new}"
     if kinds <= {"missing-table", "missing-link"}:
         tables = [f for f in fs if f.kind == "missing-table"]
@@ -244,7 +245,8 @@ def _scenario_summary(fs) -> str:
         what = f"{n} drift item{'s' if n != 1 else ''}"
 
     if unlinked:
-        return f"{what}, and one link `/fix` cannot add. {_HUMAN} {unlinked[0].new}"
+        # Not "one link": _NEEDS_HUMAN also covers a table no /fix can retire.
+        return f"{what}, and one thing `/fix` cannot do. {_HUMAN} {unlinked[0].new}"
     if extras:
         p = f"{len(extras)} param{'s' if len(extras) != 1 else ''}"
         return f"{what}. {_REVIEW} {p} would be removed"
@@ -336,10 +338,20 @@ def operator_findings(operator_root, website_root, operator_url=_OPERATOR_URL):
         records = {"spec": spec, "status": status, "columns": crd_columns(doc, by)}
         source_file = f"{operator_url}/config/crd/bases/{path.name}"
         for source in SOURCES:
-            if not records[source]:
-                continue
             table_file = f"data/params/{plural}/{source}.yaml"
             table = _table_params(website_root / table_file)
+            if not records[source]:
+                # Section gone upstream, its table still published and still
+                # called by the page. Deleting the file alone reds the build.
+                if table is not None:
+                    findings.append(Finding(plural, source, "orphan-table",
+                        new=f"the `{source}` section is gone from the CRD but its "
+                            f"table is still published",
+                        old=f"Remove the `{source}` param-table call from the page, "
+                            f"then delete `{table_file}`",
+                        source_file=source_file,
+                        table_file=f"{SECTION}/{plural}.md"))
+                continue
             src = {r.name: (None if r.default is None else str(r.default))
                    for r in records[source]}
             if table is None:

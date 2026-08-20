@@ -63,10 +63,16 @@ def emit(website_root, operator_root, source_ref="HEAD"):
     """Write data/params/<plural>/<section>.yaml plus the kind index.
     Returns (paths, gaps)."""
     website_root = Path(website_root)
-    written, gaps, index = [], [], {}
+    written, gaps, index, seen = [], [], {}, {}
     for path in sorted(Path(operator_root).glob(CRD_GLOB)):
         doc = load_crd(path)
         meta, records = crd_meta(doc), _records(doc)
+        plural = meta["plural"]
+        # The plural is both the directory and the index key, so a repeat would
+        # overwrite silently. Kubernetes only enforces it within one group.
+        if plural in seen:
+            raise ValueError(f"duplicate plural {plural!r}: {seen[plural]} and {path}")
+        seen[plural] = path
         for source, recs in records.items():
             if not recs:
                 continue
