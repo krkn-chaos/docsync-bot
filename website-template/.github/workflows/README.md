@@ -47,7 +47,7 @@ Both workflows clone all three sources:
 
 The source URLs, the bot install URL, the target repo and `roles` already point at production. What is left:
 
-**Pick the describer endpoint.** `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` on the generation step.
+**Pick the describer endpoint.** `DOC_SYNC_BOT_LLM_BASE_URL`, `DOC_SYNC_BOT_LLM_API_KEY` and `DOC_SYNC_BOT_LLM_MODEL` on the generation step.
 
 - Unset falls back to a built-in host measured unreachable from Actions, so every model-written description comes out blank while the run stays green
 - The krkn-operator target is unaffected either way: it never calls the model
@@ -56,4 +56,4 @@ The source URLs, the bot install URL, the target repo and `roles` already point 
 
 &ensp;
 
-Both workflows need the GitHub App: `APP_ID` as a repository variable and `APP_PRIVATE_KEY` as a secret. `drift-report.yml` uses it so the rolling issue has a stable author instead of `github-actions[bot]`.
+Both workflows need the GitHub App: `DOC_SYNC_BOT_APP_ID` as a repository variable and `DOC_SYNC_BOT_APP_PRIVATE_KEY` as a secret. `drift-report.yml` uses it so the rolling issue has a stable author instead of `github-actions[bot]`.

@@ -150,7 +150,7 @@ def test_a_missing_key_is_named():
     """The key is the only setting CI supplies, so it is the only one to report."""
     errors = []
     assert describe("s", ["X"], CTX, errors=errors) == {}
-    assert errors == ["no LLM_API_KEY set"]
+    assert errors == ["no DOC_SYNC_BOT_LLM_API_KEY set"]
 
 
 def test_the_key_alone_produces_the_full_request(monkeypatch):
@@ -163,7 +163,7 @@ def test_the_key_alone_produces_the_full_request(monkeypatch):
         return {"choices": [{"message": {"content": '{"X": "Plain."}'}}]}
 
     monkeypatch.setattr("bot.describe._post", fake_post)
-    monkeypatch.setenv("LLM_API_KEY", "k")
+    monkeypatch.setenv("DOC_SYNC_BOT_LLM_API_KEY", "k")
     assert describe("s", ["X"], CTX) == {"X": "Plain."}
     assert seen == {
         "url": "https://model.cclm-chaos.aws.rhperfscale.org/v1/chat/completions",

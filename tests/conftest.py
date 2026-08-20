@@ -15,9 +15,9 @@ os.environ.setdefault("GITHUB_TOKEN", "test-token-for-tests")
 
 @pytest.fixture(autouse=True)
 def _no_live_model_calls(monkeypatch):
-    """The base URL and model are built in, so a developer with LLM_API_KEY
+    """The base URL and model are built in, so a developer with DOC_SYNC_BOT_LLM_API_KEY
     exported would otherwise have the suite call the real endpoint."""
-    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("DOC_SYNC_BOT_LLM_API_KEY", raising=False)
 
 
 # Shortcode Hugo build harness (used only by the shortcode tests). hugo is looked
