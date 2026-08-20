@@ -29,6 +29,16 @@ def test_the_crd_index_and_a_reference_page_both_mean_operator():
                    CRDS) == ["operator"]
 
 
+def test_a_page_the_bot_links_resolves_to_the_operator():
+    """link_pages appends a crd-ref to six prose pages, none under api-reference/.
+    A pull request whose only change is one of those links resolved to nothing,
+    so /resync exited `no target given`."""
+    assert resolve(["content/en/docs/krkn-operator/usage/chaos-studio.md"],
+                   CRDS) == ["operator"]
+    assert resolve(["content/en/docs/krkn-operator/administration/user-management.md"],
+                   CRDS) == ["operator"]
+
+
 def test_a_mixed_pull_request_resolves_every_target_once():
     """The real upstream case: one run touched several sources."""
     changed = ["data/params/globals/krkn-hub.yaml",

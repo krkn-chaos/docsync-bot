@@ -8,10 +8,15 @@ from pathlib import Path
 
 import yaml
 
+from bot.operator import PAGES_ROOT, SECTION, _PAGE_LINKS
+
 # The bot generates this index, so its keys are exactly the operator groups.
 CRD_INDEX = "data/krkn_operator_crds.yaml"
 OPERATOR = "operator"
-_OPERATOR_PAGES = "content/en/docs/krkn-operator/api-reference/"
+_OPERATOR_PAGES = f"{SECTION}/"
+# The six pages link_pages appends a crd-ref to. Derived, not the whole tree:
+# that would route prose edits to the operator too.
+_LINKED_PAGES = frozenset(f"{PAGES_ROOT}/{rel}" for rel in _PAGE_LINKS)
 
 
 def operator_groups(website_root) -> set:
@@ -31,7 +36,8 @@ def resolve(changed_files, crd_plurals=()) -> list:
         name = raw.strip().replace("\\", "/")
         if not name:
             continue
-        if name == CRD_INDEX or name.startswith(_OPERATOR_PAGES):
+        if (name == CRD_INDEX or name in _LINKED_PAGES
+                or name.startswith(_OPERATOR_PAGES)):
             out.add(OPERATOR)
             continue
         parts = name.split("/")
