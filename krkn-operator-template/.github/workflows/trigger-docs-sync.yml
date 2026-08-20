@@ -1,10 +1,12 @@
 name: Trigger docs sync
 
-# The CRDs under config/crd/bases own the operator's API surface. When one lands
-# on main, tell the website's Doc Sync workflow to regenerate the api-reference
-# tables. Uses a GitHub App token scoped to the website, no PAT.
+# Part of the krkn docs-sync bot: krkn-chaos/website#320.
 #
-# push, not pull_request: a PR from a fork gets no repository secrets.
+#   Watches   config/crd/bases/**, which owns the operator's API surface
+#   Sends     "operator" to Doc Sync on StrikerEureka34/website_2
+#   Changes   nothing here: its app token is scoped to website_2
+#
+# push, not pull_request: a fork PR gets no secrets, and a merge is a push anyway.
 
 on:
   push:

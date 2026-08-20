@@ -35,16 +35,9 @@ jobs:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
         run: |
-          # A created ref (all-zero SHA) or a force push whose old head is gone
-          # leaves nothing to diff against; the new head's own parent still works.
           base="$BEFORE"
           git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
-            || base="$(git rev-parse --verify --quiet "$AFTER^" || true)"
-          if [ -z "$base" ]; then
-            echo "relevant=false" >> "$GITHUB_OUTPUT"
-            echo "No commit to compare against; skipping."
-            exit 0
-          fi
+            || base="$(git hash-object -t tree /dev/null)"
           # git, not the compare API: that response is capped at 300 files, and
           # going over it would drop scenarios silently.
           files=$(git diff --name-only "$base" "$AFTER")
