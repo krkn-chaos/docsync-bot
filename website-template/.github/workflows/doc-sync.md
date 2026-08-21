@@ -153,8 +153,8 @@ safe-outputs:
   # A second model call reusing this engine. Turn it off for a rate-limited
   # provider with `threat-detection: false`, here and not under create-pull-request.
   github-app:
-    app-id: ${{ vars.APP_ID }}
-    private-key: ${{ secrets.APP_PRIVATE_KEY }}
+    app-id: ${{ vars.DOC_SYNC_BOT_APP_ID }}
+    private-key: ${{ secrets.DOC_SYNC_BOT_APP_PRIVATE_KEY }}
   create-pull-request:
     target-repo: "krkn-chaos/website"
     draft: true

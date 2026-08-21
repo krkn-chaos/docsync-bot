@@ -16,7 +16,7 @@ Copy `.github/workflows/trigger-docs-sync.yml` into the krkn-operator repo's `.g
 
 ## Requires
 
-- `APP_ID` and `APP_PRIVATE_KEY` as repository secrets on krkn-operator
+- `DOC_SYNC_BOT_APP_ID` and `DOC_SYNC_BOT_APP_PRIVATE_KEY` as repository secrets on krkn-operator
 - the app installed on `krkn-chaos/website`, with the doc-sync workflow present there
 
 ## Note

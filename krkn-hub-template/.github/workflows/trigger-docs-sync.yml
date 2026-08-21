@@ -1,10 +1,12 @@
 name: Trigger docs sync
 
-# When a scenario's env.sh or krknctl-input.json lands on main, tell the website's
-# Doc Sync workflow to regenerate that scenario's docs. Uses a GitHub App token
-# scoped to website_2 (handover-friendly: no personal PAT).
+# Part of the krkn docs-sync bot: krkn-chaos/website#320.
 #
-# push, not pull_request: a PR from a fork gets no repository secrets.
+#   Watches   env.sh, */env.sh, */krknctl-input.json
+#   Sends     every scenario the push touched to Doc Sync on StrikerEureka34/website_2
+#   Changes   nothing here: its app token is scoped to website_2
+#
+# push, not pull_request: a fork PR gets no secrets, and a merge is a push anyway.
 
 on:
   push:
@@ -33,21 +35,17 @@ jobs:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
         run: |
-          # Covers a newly created branch (all-zero SHA) and a force push whose
-          # previous head is gone.
-          if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            echo "relevant=false" >> "$GITHUB_OUTPUT"
-            echo "No previous commit to compare against; skipping."
-            exit 0
-          fi
+          base="$BEFORE"
+          git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
+            || base="$(git hash-object -t tree /dev/null)"
           # git, not the compare API: that response is capped at 300 files, and
           # going over it would drop scenarios silently.
-          files=$(git diff --name-only "$BEFORE" "$AFTER")
+          files=$(git diff --name-only "$base" "$AFTER")
           # A single push can touch several scenarios; sync every one, not just
           # the first. The root env.sh holds the krkn-hub global params, which are
           # generated under the "globals" scenario rather than from a directory.
           scenarios=$(
-            { echo "$files" | grep -E '^[^/]+/(env\.sh|krknctl-input\.json)$' | cut -d/ -f1
+            { echo "$files" | grep -E '^[a-z0-9-]+/(env\.sh|krknctl-input\.json)$' | cut -d/ -f1
               if echo "$files" | grep -qx 'env\.sh'; then echo globals; fi
             } | sort -u | paste -sd' ' -
           )
@@ -60,13 +58,13 @@ jobs:
             echo "No env.sh / krknctl-input.json changed; skipping."
           fi
 
-      - name: Mint a website_2-scoped app token
+      - name: Mint a website-scoped app token
         if: steps.scenario.outputs.relevant == 'true'
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.DOC_SYNC_BOT_APP_ID }}
+          private-key: ${{ secrets.DOC_SYNC_BOT_APP_PRIVATE_KEY }}
           owner: StrikerEureka34
           repositories: website_2
 
@@ -74,8 +72,11 @@ jobs:
         if: steps.scenario.outputs.relevant == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          # Through the environment, never into the script text: an expression is
+          # substituted before bash parses it, so a name could run commands.
+          SCENARIOS: ${{ steps.scenario.outputs.names }}
         run: |
           # One dispatch carrying every changed scenario; the bot opens a single PR.
           gh workflow run doc-sync.lock.yml \
             --repo StrikerEureka34/website_2 \
-            -f scenarios="${{ steps.scenario.outputs.names }}"
+            -f scenarios="$SCENARIOS"

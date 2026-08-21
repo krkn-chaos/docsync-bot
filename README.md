@@ -115,7 +115,7 @@ python -m bot.operator --operator krkn-operator --website . --scaffold
 pytest
 ```
 
-The model rung needs one secret, `LLM_API_KEY`. The endpoint and model are built
+The model rung needs one secret, `DOC_SYNC_BOT_LLM_API_KEY`. The endpoint and model are built
 in, so nothing else is configured in CI. Without the key the run still completes:
 the affected cells stay empty and the report says the key was unset.
 
