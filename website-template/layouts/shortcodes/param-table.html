@@ -15,7 +15,9 @@
      source stores the bare flag name but a reader types --telemetry-enabled. */}}
 {{- $prefix := .Get "prefix" | default "" -}}
 {{- $data := false -}}
-{{- with site.Data.params -}}{{- $data = index . $scenario $source -}}{{- end -}}
+{{- with site.Data.params -}}
+  {{- with index . $scenario -}}{{- $data = index . $source -}}{{- end -}}
+{{- end -}}
 {{- if or (not $data) (not $data.params) -}}
   {{- errorf "param-table: no data for scenario=%q source=%q (expected data/params/%s/%s.yaml)" $scenario $source $scenario $source -}}
 {{- else -}}
@@ -53,7 +55,7 @@
       {{/* The krknctl pages list CLI flags; name stays the env var in the data
            so drift_scanner and the skip list keep matching on it. */}}
       <td><code>{{ $prefix }}{{ if isset . "flag" }}{{ index . "flag" }}{{ else }}{{ index . "name" }}{{ end }}</code></td>
-      <td>{{ index . "description" | markdownify }}</td>
+      <td>{{ $.Page.RenderString (index . "description") }}</td>
       {{- if $showType }}<td>{{ index . "type" | default "-" }}{{ if isset . "secret" }} (secret){{ end }}</td>{{ end }}
       {{/* Long defaults (TELEMETRY_FILTER_PATTERN is a ~250 char regex array)
            would wreck the layout, so show the head and keep the rest on hover. */}}

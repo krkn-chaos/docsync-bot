@@ -9,8 +9,9 @@ Copy these into the website repo's `.github/workflows/`. They are the runtime ha
 **`doc-sync.md`**, the gh-aw agentic workflow source.
 
 - Runs on a `/fix` comment, a `/resync` on a bot PR, or a dispatch from a source repo
-- Generates the parameter data files, then opens a draft PR
-- `gh aw compile` produces `doc-sync.lock.yml`, the file Actions actually runs. That lock is generated, so it is not committed here
+- Generates the parameter data files, then requests a draft PR
+- `/resync` regenerates on the PR's own branch and pushes a commit to it, so the patch is a fast-forward rather than a three-way merge onto the previous run's tables
+- `gh aw compile` produces `doc-sync.lock.yml`, the file Actions actually runs. It is not committed here, but it **must** be committed in the website repo beside `doc-sync.md`: the prompt body is read from the `.md` at run time and the two are checked against each other, so they always ship together
 
 **`drift-report.yml`**, a weekly report-only scan.
 
@@ -43,17 +44,30 @@ Both workflows clone all three sources:
 
 &ensp;
 
-## Change these for production
+## The model
 
-The source URLs, the bot install URL, the target repo and `roles` already point at production. What is left:
+Agent and describer both run on NVIDIA NIM, keyed by one secret.
 
-**Pick the describer endpoint.** `DOC_SYNC_BOT_LLM_BASE_URL`, `DOC_SYNC_BOT_LLM_API_KEY` and `DOC_SYNC_BOT_LLM_MODEL` on the generation step.
+| | Set in | Model |
+| --- | --- | --- |
+| Agent | `engine.env` | `openai/gpt-oss-20b`, a name the api-proxy allows while BYOK routes to NVIDIA |
+| Describer | `Generate parameter data and scaffold` | `nvidia/nemotron-3.5-lightning-30b-a3b` |
 
-- Unset falls back to a built-in host measured unreachable from Actions, so every model-written description comes out blank while the run stays green
-- The krkn-operator target is unaffected either way: it never calls the model
-
-**Recompile with `gh aw compile` after editing `doc-sync.md`.** Only the workflow needs this. The bot installs from `@main` at run time, so a Python change ships without one.
+- **The base URL is a literal in both places, never an expression.** `gh aw compile` reads it to allowlist the host; an expression and the firewall blocks every call
+- BYOK sends the CLI no tool definitions, so the agent cannot call a safe-output tool. `Request the pull request` writes the item and the patch, and the prompt tells the agent to do nothing
+- A run allows three model invocations. The agent uses one
+- `threat-detection` is off: it reuses the engine, doubling calls against a rate-limited tier
 
 &ensp;
 
-Both workflows need the GitHub App: `DOC_SYNC_BOT_APP_ID` as a repository variable and `DOC_SYNC_BOT_APP_PRIVATE_KEY` as a secret. `drift-report.yml` uses it so the rolling issue has a stable author instead of `github-actions[bot]`.
+## Onboarding
+
+| Name | Kind |
+| --- | --- |
+| `DOC_SYNC_BOT_APP_ID` | repository variable |
+| `DOC_SYNC_BOT_APP_PRIVATE_KEY` | secret |
+| `DOC_SYNC_BOT_LLM_API_KEY` | secret |
+
+- Both workflows use the App, so the rolling `docs-drift` issue has a stable author instead of `github-actions[bot]`
+- Without the LLM key every model-written description comes out blank and the run stays green. The krkn-operator target never calls the model, so it is unaffected
+- **Recompile with `gh aw compile` after editing `doc-sync.md`.** Only the workflow needs it: the bot installs from `@main` at run time

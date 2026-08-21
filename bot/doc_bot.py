@@ -8,7 +8,7 @@ from bot.parser import (doc_descriptions, extract_env_params,
                         extract_krknctl_params,
                         build_skip_list, is_global, require_sources)
 from bot.describe import describe_fn
-from bot.descriptions import resolve_descriptions
+from bot.descriptions import attach_reasons, resolve_descriptions
 from bot.emitter import emit_data_file, load_previous
 from bot.report import write_report
 
@@ -62,10 +62,11 @@ def _emit_one(scenario, source, records, website_root, source_ref, scn, memo):
                                        doc=doc_descriptions(scn))
     emit_data_file(website_root, scenario, source, records, descs, source_ref)
     # A rejection reason beats "nothing described it": the two need opposite fixes.
-    gaps = [(n, f, reasons.get(n, t) if f == "" else t) for n, f, t in gaps]
+    gaps = attach_reasons(gaps, reasons)
     # A published row no source produces is a whole row dropped, not a cell.
     ids = {r.flag or r.name for r in records}
-    orphans = [(scenario, source, k, "orphan", "") for k in pub_desc if k not in ids]
+    orphans = [(scenario, source, k, "orphan", "", "")
+               for k in pub_desc if k not in ids]
     return [(scenario, source) + g for g in gaps] + orphans
 
 

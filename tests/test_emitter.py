@@ -210,3 +210,12 @@ def test_escaping_a_published_description_again_is_a_no_op():
         "node-scenarios", "krkn-hub", [ParamRecord(name="X")],
         {"X": once}, "abc"))["params"][0]
     assert p["description"] == once
+
+
+def test_a_shortcode_call_in_a_description_cannot_run():
+    """param-table renders descriptions with RenderString, which executes a
+    real shortcode on sight of {{< or {{%. Escaping { alone stops both forms."""
+    p = yaml.safe_load(emit_data_text(
+        "node-scenarios", "krkn-hub", [ParamRecord(name="X")],
+        {"X": '{{% include "http://evil.example" %}}'}, "abc"))["params"][0]
+    assert "{{" not in p["description"]

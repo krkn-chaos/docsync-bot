@@ -14,7 +14,7 @@ from pathlib import Path
 from bot.parser import extract_env_params, extract_krknctl_params, require_sources
 from bot.emitter import emit_data_file, load_previous
 from bot.describe import describe_fn
-from bot.descriptions import resolve_descriptions
+from bot.descriptions import attach_reasons, resolve_descriptions
 from bot.report import write_report
 
 GLOBAL_SCENARIO = "globals"
@@ -124,12 +124,12 @@ def emit(website_root, krkn_hub_root, krkn_root, source_ref="HEAD"):
         descs, g = resolve_descriptions(
             GLOBAL_SCENARIO, ordered, existing,
             describe_fn(krkn_hub_root, ordered, reasons), published=published[source])
-        g = [(n, f, reasons.get(n, t) if f == "" else t) for n, f, t in g]
+        g = attach_reasons(g, reasons)
         gaps += [(GLOBAL_SCENARIO, source) + x for x in g]
         # A published row no source produces is a whole row dropped. The
         # per-scenario path reports these; without this the globals pages did not.
         names = {r.name for r in ordered}
-        gaps += [(GLOBAL_SCENARIO, source, k, "orphan", "")
+        gaps += [(GLOBAL_SCENARIO, source, k, "orphan", "", "")
                  for k in published[source] if k not in names]
         written.append(
             emit_data_file(website_root, GLOBAL_SCENARIO, source, ordered, descs, source_ref))
