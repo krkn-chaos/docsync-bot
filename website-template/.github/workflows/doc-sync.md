@@ -1,6 +1,6 @@
 ---
-# Source workflow, compiled to doc-sync.lock.yml by `gh aw compile`. All the
-# deterministic work runs in the steps below; the agent only opens the PR.
+# Source workflow, compiled to doc-sync.lock.yml by `gh aw compile`. Every
+# deterministic step runs below, and the agent is inert: see the last step.
 
 on:
   slash_command:
@@ -16,11 +16,20 @@ on:
 
 permissions: read-all
 
-# Name a model matching copilot/*, anthropic/*, openai/*, google/* or gemini/*.
-# gh-aw's api-proxy refuses anything else with a bare 400: github/gh-aw#50113.
+# `copilot` is the CLI harness, not the service. The api-proxy permits only
+# copilot/*, anthropic/*, openai/*, google/*, gemini/*: github/gh-aw#50113.
+#
+# The base URL is a literal because gh-aw reads it at compile time to allowlist
+# the host. An expression here and the firewall blocks every call.
 engine:
   id: copilot
-  model: gpt-4o-mini
+  model: openai/gpt-oss-20b
+  env:
+    COPILOT_PROVIDER_BASE_URL: https://integrate.api.nvidia.com/v1
+    COPILOT_PROVIDER_API_KEY: ${{ secrets.DOC_SYNC_BOT_LLM_API_KEY }}
+    COPILOT_PROVIDER_TYPE: openai
+tools:
+  bash: ["*"]
 
 steps:
   - name: Checkout website
@@ -34,8 +43,10 @@ steps:
     id: scn
     env:
       DISPATCH_SCENARIOS: ${{ github.event.inputs.scenarios }}
-      COMMENT_BODY: ${{ github.event.comment.body }}
-      PR_NUMBER: ${{ github.event.issue.number }}
+      # Normalized across every trigger shape; a bare comment.body is empty
+      # when the command is the issue/PR/discussion body itself.
+      COMMENT_BODY: ${{ needs.activation.outputs.body }}
+      PR_NUMBER: ${{ github.event.pull_request.number || (github.event.issue.pull_request && github.event.issue.number) }}
       REPO: ${{ github.repository }}
       GH_TOKEN: ${{ github.token }}
     run: |
@@ -52,10 +63,20 @@ steps:
             | python3 -m bot.targets --website .)"
         fi
       fi
-      scenarios="$(echo $scenarios | tr -s ' ')"
+      scenarios="$(printf '%s' "$scenarios" | tr -s ' ')"
       if [ -z "$scenarios" ]; then
         echo "no target given" >&2
         exit 1
+      fi
+      # /resync updates the pull request it was called on, so the run regenerates
+      # on top of that branch. Digits only: the number reaches a git refspec.
+      if [ "$(printf '%s' "$COMMENT_BODY" | awk 'NR==1{print $1}')" = "/resync" ]; then
+        case "$PR_NUMBER" in
+          ''|*[!0-9]*)
+            echo "/resync needs a pull request number" >&2
+            exit 1 ;;
+          *) echo "resync_pr=$PR_NUMBER" >> "$GITHUB_OUTPUT" ;;
+        esac
       fi
       # Targets are scenario ids plus the literals "globals" and "operator".
       # All fit a-z0-9-, so this guard stays exactly as strict as before.
@@ -67,6 +88,15 @@ steps:
         esac
       done
       echo "scenarios=$scenarios" >> "$GITHUB_OUTPUT"
+  # Regenerating against main instead would leave safe-outputs three-waying the
+  # patch onto the previous run's tables, and the tab pages conflict.
+  - name: Check out the pull request branch on resync
+    if: steps.scn.outputs.resync_pr != ''
+    env:
+      PR_NUMBER: ${{ steps.scn.outputs.resync_pr }}
+    run: |
+      git fetch origin "refs/pull/$PR_NUMBER/head:resync"
+      git checkout resync
   - name: Clone krkn-hub source
     run: git clone --depth 1 https://github.com/krkn-chaos/krkn-hub.git "$RUNNER_TEMP/krkn-hub"
   - name: Clone krkn source
@@ -83,8 +113,11 @@ steps:
       KRKN_PATH: ${{ runner.temp }}/krkn
       KRKN_OPERATOR_PATH: ${{ runner.temp }}/krkn-operator
       GH_AW_REPORT_DIR: ${{ runner.temp }}
-      # No LLM_* yet: which endpoint and credential is a separate decision. The
-      # operator target never reaches the model, so it is unaffected either way.
+      # Runs before the firewall is installed, so no network.allowed entry.
+      # The operator target never reaches the model: its CRDs describe themselves.
+      DOC_SYNC_BOT_LLM_BASE_URL: https://integrate.api.nvidia.com/v1
+      DOC_SYNC_BOT_LLM_API_KEY: ${{ secrets.DOC_SYNC_BOT_LLM_API_KEY }}
+      DOC_SYNC_BOT_LLM_MODEL: nvidia/nemotron-3.5-lightning-30b-a3b
     run: |
       for target in ${{ steps.scn.outputs.scenarios }}; do
         echo "Generating: $target"
@@ -105,6 +138,7 @@ steps:
       # carries one merged table instead of a heading per target.
       python3 -m bot.report
   - name: Commit generated files to a branch
+    id: commit
     env:
       TARGETS: ${{ steps.scn.outputs.scenarios }}
     run: |
@@ -139,7 +173,62 @@ steps:
       # Appended as a file, never as shell source. An Actions expression is
       # substituted before bash parses it; a heredoc body is not.
       cat "$RUNNER_TEMP/gaps.md" >> "$RUNNER_TEMP/commit-msg.txt" 2>/dev/null || true
-      git commit -s -F "$RUNNER_TEMP/commit-msg.txt" || echo "no changes to commit"
+      # Test for an empty index rather than reading the commit's exit code, so a
+      # commit that fails for any other reason fails the run instead of no-oping.
+      if git diff --cached --quiet; then
+        echo "no changes to commit"
+        echo "committed=false" >> "$GITHUB_OUTPUT"
+      else
+        git commit -s -F "$RUNNER_TEMP/commit-msg.txt"
+        echo "committed=true" >> "$GITHUB_OUTPUT"
+      fi
+  # Replaces the agent: gh-aw needs the item and a patch, and BYOK sends the CLI
+  # no tool definitions. Not post-steps:, which compile in after the ingest.
+  - name: Request the pull request
+    env:
+      RUN_NUMBER: ${{ github.run_number }}
+      RESYNC_PR: ${{ steps.scn.outputs.resync_pr }}
+      COMMITTED: ${{ steps.commit.outputs.committed }}
+    run: |
+      OUT="${GH_AW_SAFE_OUTPUTS:-${RUNNER_TEMP}/gh-aw/safeoutputs/outputs.jsonl}"
+      mkdir -p "$(dirname "$OUT")"
+      # push_to_pull_request_branch takes the branch from the triggering pull
+      # request, and git am keeps the patch's own commit message.
+      python3 - >> "$OUT" <<'SAFE_OUTPUT'
+      import json, os
+      run = os.environ["RUN_NUMBER"]
+      if os.environ.get("RESYNC_PR"):
+          item = {"type": "push_to_pull_request_branch",
+                  "message": "docs-sync: regenerate parameter tables"}
+      else:
+          item = {
+              "type": "create_pull_request",
+              "branch": "docs-sync-" + run,
+              "title": "Regenerate parameter tables",
+              "body": (
+                  "Parameter tables regenerated from source. The commit message "
+                  "lists the targets, the file counts and the source files.\n\n"
+                  "These files are generated. Edit the source, not the table."
+              ),
+          }
+      print(json.dumps(item))
+      SAFE_OUTPUT
+
+      SLUG="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]' | tr '/' '-')"
+      mkdir -p /tmp/gh-aw
+      PATCH="/tmp/gh-aw/aw-${SLUG}-docs-sync-${RUN_NUMBER}.patch"
+      # An empty patch is the documented no-op. Without this a run that generated
+      # nothing would ship the branch's previous commit instead.
+      if [ "$COMMITTED" = "true" ]; then
+        git format-patch -1 HEAD --stdout > "$PATCH"
+      else
+        : > "$PATCH"
+      fi
+      if [ -n "$RESYNC_PR" ]; then
+        echo "requested a push to PR #$RESYNC_PR (committed=$COMMITTED)"
+      else
+        echo "requested a pull request for docs-sync-$RUN_NUMBER (committed=$COMMITTED)"
+      fi
 
 network:
   allowed:
@@ -150,8 +239,9 @@ max-turns: 3
 timeout-minutes: 15
 
 safe-outputs:
-  # A second model call reusing this engine. Turn it off for a rate-limited
-  # provider with `threat-detection: false`, here and not under create-pull-request.
+  # Off: it reuses the engine, so it doubles the calls against a rate-limited
+  # free tier. Belongs here, not under create-pull-request.
+  threat-detection: false
   github-app:
     app-id: ${{ vars.DOC_SYNC_BOT_APP_ID }}
     private-key: ${{ secrets.DOC_SYNC_BOT_APP_PRIVATE_KEY }}
@@ -166,25 +256,16 @@ safe-outputs:
 
 # Doc Sync
 
-Earlier workflow steps already regenerated the changed krkn-chaos targets' parameter data files, injected the shortcode, and committed everything to the branch `docs-sync-${{ github.run_number }}`. Your only job is to open a single pull request for that branch. Do not run git or any other command.
+This run is already finished. Earlier steps regenerated the parameter data files,
+injected the shortcode, committed everything to `docs-sync-${{ github.run_number }}`,
+and wrote the safe output item. There is no work left for you.
 
-The triggering command was `${{ needs.pre_activation.outputs.matched_command }}`.
+The safe-output requirement above is already satisfied. Do not call
+`create_pull_request`, `push_to_pull_request_branch` or any other tool: this engine
+runs BYOK, which sends no tool definitions, so a call cannot land and each attempt
+spends one of the run's three allowed model invocations. Do not run git, bash or any
+command. Never read or log secrets.
 
-Call exactly one safe-output tool:
-- if the triggering command was `resync`, call `push_to_pull_request_branch` to update the existing pull request.
-- otherwise call `create_pull_request` with `branch` set to `docs-sync-${{ github.run_number }}`.
+Reply with this one line and stop:
 
-Set `title` to exactly `Regenerate parameter tables` and `body` to exactly the three
-lines below. Copy them character for character. Do not summarise them, do not add a
-file list, do not add counts, do not add anything else.
-
-```
-Parameter tables regenerated from source. The commit message lists the targets, the file counts and the source files.
-
-These files are generated. Edit the source, not the table.
-```
-
-Every fact about this run already lives in the commit message, which was written
-deterministically and is visible in the diff. You do not need to restate it.
-
-You must call exactly one safe-output tool before finishing. Never read or log secrets.
+The pull request for `docs-sync-${{ github.run_number }}` was already requested.

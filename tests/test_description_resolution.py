@@ -30,7 +30,7 @@ def test_llm_only_for_params_nothing_describes():
     out, gaps = resolve_descriptions("scn", recs, {}, fake_llm)
     assert out["SRC"] == "from src"
     assert out["NEW"] == "LLM desc for NEW."
-    assert gaps == [("NEW", "llm", "LLM desc for NEW.")]
+    assert gaps == [("NEW", "llm", "LLM desc for NEW.", "")]
     assert recs[1].description_source == "llm"
 
 
@@ -46,7 +46,7 @@ def test_an_undescribed_param_is_left_blank_not_papered_over():
     recs = [ParamRecord(name="PORT")]
     out, gaps = resolve_descriptions("scn", recs, {}, lambda s, n: {})
     assert out["PORT"] == ""
-    assert gaps == [("PORT", "", "no description in any source and no published row")]
+    assert gaps == [("PORT", "", "no description in any source and no published row", "")]
 
 
 def test_a_published_description_is_carried_when_no_source_has_one():
@@ -56,7 +56,7 @@ def test_a_published_description_is_carried_when_no_source_has_one():
                                      published={"VERIFY_SESSION": "Verify the SSH session"})
     assert out["VERIFY_SESSION"] == "Verify the SSH session"
     assert recs[0].description_source == "published-table"
-    assert gaps == [("VERIFY_SESSION", "published-table", "Verify the SSH session")]
+    assert gaps == [("VERIFY_SESSION", "published-table", "Verify the SSH session", "")]
 
 
 def test_a_source_description_still_wins_over_the_published_one():
@@ -103,7 +103,7 @@ def test_scenario_doc_fills_a_param_env_sh_leaves_bare():
     assert recs[0].description_source == "hub-doc"
     # Reported, so the commit message says where the wording came from. It is
     # not the row's own source file, so a reviewer has to be able to see it.
-    assert gaps == [("HTTP2", "hub-doc", "Enable HTTP/2 protocol support")]
+    assert gaps == [("HTTP2", "hub-doc", "Enable HTTP/2 protocol support", "")]
 
 
 def test_a_curated_published_row_outranks_the_scenario_doc():

@@ -28,7 +28,9 @@ def _fix_hint(blank):
     lines += [f"- {', '.join(sorted(s))}: {h}" for h, s in sorted(by_hint.items())]
     return "\n".join(lines) + "\n"
 
-FILLED = ("published-table", "llm", "hub-doc")
+# Written by a human, just not in this row's own source file.
+FILLED = ("published-table", "hub-doc")
+MODEL = "llm"
 ORPHAN = "orphan"
 
 
@@ -38,20 +40,25 @@ def _cell(text):
 
 
 def _once(rows):
-    """A param on both tabs produces a row per source. The reader wants it once."""
-    seen, out = set(), []
+    """A param on both tabs produces a row per source. The reader wants it once,
+    and a note from either tab survives even if its row sorts second."""
+    kept = {}
     for row in sorted(rows):
         key = (row[0], row[2], row[3], row[4])
-        if key not in seen:
-            seen.add(key)
-            out.append(row)
-    return out
+        if key not in kept:
+            kept[key] = row
+        elif row[5] and row[5] != kept[key][5]:
+            prior = kept[key][5]
+            note = row[5] if not prior else "; ".join(sorted({prior, row[5]}))
+            kept[key] = kept[key][:5] + (note,)
+    return list(kept.values())
 
 
 def render(gaps):
-    """gaps is (scenario, source, param, filled_from, text); filled_from is "" for
-    a blank, with the reason in text. Sorted so reruns are byte identical."""
+    """gaps is (scenario, source, param, filled_from, text, note); filled_from is
+    "" for a blank, with the reason in text. Sorted so reruns are byte identical."""
     filled = _once(g for g in gaps if g[3] in FILLED)
+    model = _once(g for g in gaps if g[3] == MODEL)
     blank = _once(g for g in gaps if g[3] == "")
     # Orphans keep their source: which tab lost the row is the useful part.
     orphan = sorted(set(g for g in gaps if g[3] == ORPHAN))
@@ -60,19 +67,33 @@ def render(gaps):
         out += [f"### Descriptions not taken from source ({len(filled)})\n",
                 "| Scenario | Parameter | Filled from | Text |",
                 "| --- | --- | --- | --- |"]
-        out += [f"| {s} | {p} | {src} | {_cell(t)} |" for s, _, p, src, t in filled]
+        out += [f"| {s} | {p} | {src} | {_cell(t)} |" for s, _, p, src, t, _n in filled]
+        out.append("")
+    if model:
+        # Everything the model wrote is published as written, so the reviewer
+        # decides. Rows the validator flagged sort first.
+        model.sort(key=lambda g: (not g[5], g[0], g[2]))
+        flagged = sum(1 for g in model if g[5])
+        head = f"### Written by the model, review before merge ({len(model)})"
+        if flagged:
+            head += f", {flagged} flagged"
+        out += [head + "\n",
+                "| Scenario | Parameter | Text | Check |",
+                "| --- | --- | --- | --- |"]
+        out += [f"| {s} | {p} | {_cell(t)} | {_cell(n) or '-'} |"
+                for s, _, p, _f, t, n in model]
         out.append("")
     if blank:
         out += [f"### Still blank ({len(blank)})\n",
                 "| Scenario | Parameter | Why |",
                 "| --- | --- | --- |"]
-        out += [f"| {s} | {p} | {_cell(why)} |" for s, _, p, _f, why in blank]
+        out += [f"| {s} | {p} | {_cell(why)} |" for s, _, p, _f, why, _n in blank]
         out += ["", _fix_hint(blank)]
     if orphan:
         out += [f"### Dropped, not in any source ({len(orphan)})\n",
                 "| Scenario | Source | Parameter |",
                 "| --- | --- | --- |"]
-        out += [f"| {s} | {sr} | {p} |" for s, sr, p, _f, _t in orphan]
+        out += [f"| {s} | {sr} | {p} |" for s, sr, p, _f, _t, _n in orphan]
         out.append("")
     return "\n".join(out)
 

@@ -265,7 +265,7 @@ def test_a_dropped_global_is_reported(tmp_path):
                           "--------- | ----------- | -------\n"
                           "`ES_RUN_TAG` | Tag to identify the run | blank\n")
     _, gaps = g.emit(website, hub, krkn)
-    assert ("globals", "krkn-hub", "ES_RUN_TAG", "orphan", "") in gaps
+    assert ("globals", "krkn-hub", "ES_RUN_TAG", "orphan", "", "") in gaps
 
 
 def test_the_data_file_and_the_injected_call_agree_on_the_group(tmp_path):

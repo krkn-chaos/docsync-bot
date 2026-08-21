@@ -11,12 +11,11 @@ _FALLBACK_SOURCES = ("published-table", "llm", "krknctl", "crd-field",
 
 
 def _escape(text):
-    """param-table runs descriptions through markdownify and the site sets
-    goldmark unsafe, so <selector> reaches the browser as a tag and vanishes.
-    Only < and >, never &, which keeps a re-run idempotent."""
+    """< and > for raw HTML, { for Hugo shortcodes. Never &, so a re-run stays
+    idempotent: the entities contain none of the escaped characters."""
     if not text:
         return text
-    return text.replace("<", "&lt;").replace(">", "&gt;")
+    return text.replace("<", "&lt;").replace(">", "&gt;").replace("{", "&#123;")
 
 
 def _param_dict(rec, description, source, scenario):

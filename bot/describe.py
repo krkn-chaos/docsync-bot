@@ -9,8 +9,21 @@ import urllib.request
 from dataclasses import asdict
 from pathlib import Path
 
-MAX_LEN = 120
-_TIMEOUT = 30
+MAX_LEN = 160
+
+
+def _timeout():
+    """A bad value here must not crash the import: that would fail every
+    target, including operator, which never calls the model."""
+    try:
+        # 30s was too tight: a free-tier endpoint answered the same prompt in
+        # 20s, 27s and 83s within one hour, so this covers the slow end.
+        return int(os.environ.get("DOC_SYNC_BOT_LLM_TIMEOUT", "120"))
+    except ValueError:
+        return 120
+
+
+_TIMEOUT = _timeout()
 # The endpoint the project runs. Only the key is a secret; the env overrides are
 # for local experiments, so CI needs DOC_SYNC_BOT_LLM_API_KEY and nothing else.
 _BASE_URL = "https://model.cclm-chaos.aws.rhperfscale.org/v1"
@@ -20,8 +33,8 @@ _PLACEHOLDER = re.compile(r'^(configures?|sets?|specifies|controls?) (the )?\w+\
 
 _SYSTEM = (
     "Write one plain sentence describing each parameter, for a documentation "
-    "table. One sentence, at most 120 characters, no markdown. Describe only what "
-    "the context states. Never state a default, range or unit that is not in that "
+    "table. Exactly one sentence, at most 25 words, no markdown. Describe only "
+    "what the context states. Never state a default, range or unit that is not in that "
     "parameter's own record. Do not repeat the default value; the table shows it "
     "in its own column. If unsure, return an empty string for that parameter. "
     "Match the voice of the examples. Return JSON only: an object mapping each "
@@ -72,10 +85,15 @@ def build_prompt(scenario, names, ctx):
 def context(scn, names, records):
     """What the model gets. Curated in code rather than left to the model to go
     looking for, so the same run always sends the same thing."""
-    readme = Path(scn) / "README.md"
+    scn = Path(scn)
+    # Both: the README is usually a stub, but it is where a contributor writes up
+    # a new parameter, and docs/<scenario>.md carries the scenario itself.
+    sources = (scn / "README.md", scn.parent / "docs" / f"{scn.name}.md")
     wanted = set(names)
     return {
-        "readme": readme.read_text(encoding="utf-8")[:2000] if readme.exists() else "",
+        "readme": "\n\n".join(
+            p.read_text(encoding="utf-8-sig", errors="replace")[:2000]
+            for p in sources if p.exists()),
         "params": {r.name: {"type": r.type or "",
                             "default": r.default if r.default is not None else "",
                             "allowed": ", ".join(r.allowed_values or []),
@@ -87,32 +105,56 @@ def context(scn, names, records):
 
 
 def describe_fn(scn, records, reasons, memo=None):
-    """llm_fn for resolve_descriptions. Rejections go into `reasons` so the report
-    says why a cell is blank, not only that it is. memo is shared across a
+    """llm_fn for resolve_descriptions. Anything the model writes is published;
+    `reasons` carries what a reviewer should look at. memo is shared across a
     scenario's two sources, so a param on both tabs gets one description."""
     memo = {} if memo is None else memo
     by_name = {r.name: r for r in records}
 
     def fn(scenario, names):
         out = {n: memo[n] for n in names if n in memo}
+        # A memo hit skipped validate, and this source's record may be stricter.
+        for n, text in out.items():
+            why = validate(text, asdict(by_name[n])) if n in by_name else None
+            if why:
+                reasons.setdefault(n, why)
         todo = [n for n in names if n not in memo]
         if not todo:
             return out
         errors = []
         got = describe(scenario, todo, context(scn, todo, records), errors=errors)
         for name, text in got.items():
+            if not (text or "").strip():
+                continue
+            out[name] = memo[name] = text
             why = validate(text, asdict(by_name[name]))
-            if why is None:
-                out[name] = memo[name] = text
-            else:
+            if why:
                 reasons[name] = why
-        # "the model was never reached" and "nothing describes it" need opposite
-        # fixes, so the report must not collapse them into one message.
+        # Never reached and reached-but-declined need opposite fixes, so the
+        # report must not collapse them into one message.
+        silent = [n for n in todo if n not in got]
         for n in todo:
-            if errors and n not in out:
-                reasons.setdefault(n, f"model unavailable: {errors[0]}")
+            if n not in out:
+                reasons.setdefault(n, f"model unavailable: {errors[0]}" if errors
+                                   else "the model was asked and returned nothing")
+        if silent and not errors:
+            print(f"describe: model returned no text for {', '.join(silent)}",
+                  file=sys.stderr)
         return out
     return fn
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """urllib keeps Authorization across a redirect and allows https -> http, so
+    the endpoint itself could hand our key to any host in plaintext. Returning
+    None raises the 3xx as an HTTPError, which describe() already reports."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+# Built once. build_opener drops the default redirect handler for this subclass.
+_OPENER = urllib.request.build_opener(_NoRedirect)
 
 
 def _post(url, key, body):
@@ -120,17 +162,23 @@ def _post(url, key, body):
         url, data=json.dumps(body).encode("utf-8"), method="POST",
         headers={"Authorization": f"Bearer {key}",
                  "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
+    with _OPENER.open(req, timeout=_TIMEOUT) as r:
         return json.loads(r.read())
 
 
-def _body(err):
+def _body(err, key=None):
     """The status alone names no cause: this endpoint answers 400 for an
-    unsupported model and 400 for a malformed body. The body says which."""
+    unsupported model and 400 for a malformed body. The body says which.
+
+    Scrubbed before it is truncated, because this text ends up in a public commit
+    message and Actions secret masking covers logs, not files. A 401 body is a
+    common place for an endpoint to quote the credential back."""
     try:
         text = " ".join(err.read().decode("utf-8", "replace").split())
     except Exception:
         text = ""
+    if key:
+        text = text.replace(key, "***")
     return text[:200] or "no body"
 
 
@@ -152,20 +200,25 @@ def _fail(errors, msg):
 
 def describe(scenario, names, ctx, transport=None, errors=None):
     """{name: sentence} for the names that produced text.
-    Returns {} on any failure (non-200, bad JSON, timeout, unset config): a blank
-    cell is already legal and reported, so a failed call never fails the run."""
+    Returns {} on any failure (non-200, bad JSON, timeout, no credentials): a
+    blank cell is already legal and reported, so a failed call never fails the
+    run."""
     if not names:
         return {}
+    key = os.environ.get("DOC_SYNC_BOT_LLM_API_KEY")
     if transport is None:
-        key = os.environ.get("DOC_SYNC_BOT_LLM_API_KEY")
         if not key:
             return _fail(errors, "no DOC_SYNC_BOT_LLM_API_KEY set")
-        url = os.environ.get("DOC_SYNC_BOT_LLM_BASE_URL",
-                             _BASE_URL).rstrip("/") + "/chat/completions"
-        transport = lambda body: _post(url, key, body)  # noqa: E731
-    # No response_format: some endpoints reject the field outright, and the reply
-    # is parsed with json.loads either way.
+        base = os.environ.get("DOC_SYNC_BOT_LLM_BASE_URL", _BASE_URL).rstrip("/")
+        # The key rides this connection as a bearer header, so a plaintext base
+        # would put it on the wire. Refuse rather than send it.
+        if not base.startswith("https://"):
+            return _fail(errors, f"DOC_SYNC_BOT_LLM_BASE_URL must be https, got {base[:40]!r}")
+        transport = lambda body: _post(base + "/chat/completions", key, body)  # noqa: E731
+    # A small model told "return JSON only" still answers with something else.
+    # Not every endpoint takes the field, so a 400 retries once without it.
     body = {"model": os.environ.get("DOC_SYNC_BOT_LLM_MODEL", _MODEL),
+            "response_format": {"type": "json_object"},
             "temperature": 0,
             "messages": [{"role": "system", "content": _SYSTEM},
                          {"role": "user",
@@ -173,7 +226,17 @@ def describe(scenario, names, ctx, transport=None, errors=None):
     try:
         payload = transport(body)
     except urllib.error.HTTPError as e:
-        return _fail(errors, f"endpoint returned HTTP {e.code}: {_body(e)}")
+        if e.code != 400 or "response_format" not in body:
+            return _fail(errors, f"endpoint returned HTTP {e.code}: {_body(e, key)}")
+        body.pop("response_format")
+        print("describe: endpoint rejected response_format, retrying without it",
+              file=sys.stderr)
+        try:
+            payload = transport(body)
+        except urllib.error.HTTPError as e2:
+            return _fail(errors, f"endpoint returned HTTP {e2.code}: {_body(e2, key)}")
+        except Exception as e2:
+            return _fail(errors, f"endpoint unreachable ({type(e2).__name__})")
     except Exception as e:
         return _fail(errors, f"endpoint unreachable ({type(e).__name__})")
     try:
@@ -182,5 +245,18 @@ def describe(scenario, names, ctx, transport=None, errors=None):
         return _fail(errors, f"unexpected response shape ({type(e).__name__})")
     if not isinstance(raw, dict):
         return _fail(errors, "response JSON was not an object")
-    return {n: raw[n].strip() for n in names
+    # A model that wraps the mapping in one key, {"parameters": {...}}, is
+    # answering correctly in the wrong shape. Unwrap rather than drop it.
+    if not any(n in raw for n in names) and len(raw) == 1:
+        inner = next(iter(raw.values()))
+        if isinstance(inner, dict):
+            raw = inner
+    out = {n: raw[n].strip() for n in names
             if isinstance(raw.get(n), str) and raw[n].strip()}
+    if not out:
+        # Tells "declined" apart from "answered in a shape we do not read".
+        # Content only, no headers, so the key cannot ride along.
+        body_text = " ".join(str(payload["choices"][0]["message"]["content"]).split())
+        print(f"describe: no requested name in the reply: {body_text[:200]!r}",
+              file=sys.stderr)
+    return out
