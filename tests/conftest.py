@@ -32,13 +32,15 @@ def find_hugo() -> str:
     if found:
         return found
     search_roots = [REPO, REPO.parent / "krkn_Sync" / "website"]
-    # The hugo-extended npm package ships the real binary under vendor/.
+    # hugo-extended ships the binary under vendor/ up to 0.146, bin/ by 0.164.
+    # Nothing pins the version, so search both.
     for root in search_roots:
-        for name in ("hugo.exe", "hugo"):
-            cand = root / "node_modules" / "hugo-extended" / "vendor" / name
-            if cand.exists():
-                return str(cand)
-    # Fallback to the .bin shim (works on POSIX; on Windows prefer the vendor exe above).
+        for sub in ("vendor", "bin"):
+            for name in ("hugo.exe", "hugo"):
+                cand = root / "node_modules" / "hugo-extended" / sub / name
+                if cand.exists():
+                    return str(cand)
+    # Fallback to the .bin shim (works on POSIX; on Windows prefer the exe above).
     for root in search_roots:
         for name in ("hugo.exe", "hugo"):
             cand = root / "node_modules" / ".bin" / name
