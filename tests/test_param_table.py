@@ -2,7 +2,12 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
+from bot.operator import SECTION
+
 EXAMPLES = Path(__file__).resolve().parents[1] / "website-template" / "examples" / "data" / "params"
+SHORTCODE = Path(__file__).resolve().parents[1] / "website-template" / "layouts" / "shortcodes"
+# Hugo serves content/<lang>/<path> at /<path>.
+SECTION_URL = SECTION.split("/", 2)[2]
 
 
 def headers(html):
@@ -338,7 +343,15 @@ def test_crd_ref_links_to_the_generated_reference(site):
     rel = _crd_ref_page(site, "krknusers")
     proc = site.build()
     assert proc.returncode == 0, proc.stderr
-    assert href(site.html(rel)) == "/docs/krkn-operator/api-reference/krknusers/"
+    assert href(site.html(rel)) == f"/{SECTION_URL}/krknusers/"
+
+
+def test_crd_ref_href_matches_the_section_the_bot_writes():
+    """The errorf gate proves the CRD exists, not the path, so a wrong href
+    builds green and 404s. SECTION ships in the package and the shortcode in a
+    website commit, so nothing else pins them together."""
+    html = (SHORTCODE / "crd-ref.html").read_text(encoding="utf-8")
+    assert f'"{SECTION_URL}/%s/"' in html
 
 
 def test_crd_ref_keeps_the_site_base_path(tmp_path):
@@ -349,4 +362,4 @@ def test_crd_ref_keeps_the_site_base_path(tmp_path):
     rel = _crd_ref_page(site, "krknusers")
     proc = site.build()
     assert proc.returncode == 0, proc.stderr
-    assert href(site.html(rel)) == "/chaos/docs/krkn-operator/api-reference/krknusers/"
+    assert href(site.html(rel)) == f"/chaos/{SECTION_URL}/krknusers/"

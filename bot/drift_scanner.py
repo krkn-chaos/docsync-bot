@@ -308,13 +308,15 @@ def _linked_crds(website_root) -> dict[str, str]:
 
     A call on the wrong page still counts as linked. That is a known boundary,
     documented in the guides."""
-    from bot.operator import PAGES_ROOT
+    from bot.operator import PAGES_ROOT, SECTION
     root = Path(website_root) / PAGES_ROOT
     if not root.exists():
         return {}
+    # Derived, so a SECTION rename cannot strand this.
+    generated = Path(SECTION).name
     found = {}
     for p in sorted(root.rglob("*.md")):
-        if "api-reference" in p.parts:
+        if generated in p.parts:
             continue
         for c in _CRD_REF_RE.findall(p.read_text(encoding="utf-8")):
             found.setdefault(c, p.relative_to(website_root).as_posix())
@@ -322,7 +324,7 @@ def _linked_crds(website_root) -> dict[str, str]:
 
 
 def operator_findings(operator_root, website_root, operator_url=_OPERATOR_URL):
-    """CRDs against the committed api-reference tables, plus a reference page
+    """CRDs against the committed crd-reference tables, plus a reference page
     nothing links to. Writes nothing, like the rest of the scan."""
     from bot.crd_parser import crd_columns, crd_fields, crd_meta, load_crd
     from bot.operator import CRD_GLOB, SECTION, SOURCES, link_blocker
