@@ -6,6 +6,7 @@ When a scenario's `env.sh` or `krknctl-input.json` lands on `main`, it dispatche
 
 It triggers on `push` rather than a merged `pull_request` because a pull request opened from a fork gets no repository secrets, so the app token step would fail on exactly the contributions that matter. A merge produces a push either way.
 
-## Change these for production
+## Requires
 
-- the target owner and repo `StrikerEureka34` / `website_2` to `krkn-chaos` / `website`
+- `DOC_SYNC_BOT_APP_ID` and `DOC_SYNC_BOT_APP_PRIVATE_KEY` as repository secrets on krkn-hub
+- the app installed on `krkn-chaos/website`, with the doc-sync workflow present there

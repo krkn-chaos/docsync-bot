@@ -8,6 +8,7 @@ It triggers on `push` rather than a merged `pull_request` because a pull request
 
 Separate from the krkn-hub trigger because the two sources have different shapes: krkn-hub has one directory per scenario, krkn has one file for every global.
 
-## Change these for production
+## Requires
 
-- the target owner and repo `StrikerEureka34` / `website_2` to `krkn-chaos` / `website`
+- `DOC_SYNC_BOT_APP_ID` and `DOC_SYNC_BOT_APP_PRIVATE_KEY` as repository secrets on krkn
+- the app installed on `krkn-chaos/website`, with the doc-sync workflow present there
