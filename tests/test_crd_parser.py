@@ -75,12 +75,21 @@ def test_a_column_carries_no_requiredness():
     assert all(c.required is None for c in crd_columns(doc, sections(doc)))
 
 
-def test_a_hard_wrapped_description_comes_back_as_one_line():
-    """controller-gen wraps at 80 columns. Raw, it breaks out of a table cell."""
+def test_a_hard_wrapped_description_keeps_its_line_breaks():
+    """The wraps rejoin as one paragraph when the cell is rendered, so they are
+    kept rather than collapsed here."""
     spec = by_name(crd_fields(crd("krknusers"), "spec"))
     assert spec["passwordSecretRef"].description == (
-        "PasswordSecretRef references the Secret containing the hashed password "
+        "PasswordSecretRef references the Secret containing the hashed password\n"
         "The Secret must contain a 'passwordHash' key with the bcrypt hash")
+
+
+def test_a_list_shaped_description_is_not_collapsed_into_a_run_on():
+    """Why the flattening went: joined onto one line these read as prose."""
+    spec = by_name(crd_fields(crd("krkngraphruns"), "spec"))
+    d = spec["resiliencyScoreBaseline"].description
+    assert "\n- calculated >= baseline" in d
+    assert "\n- no baseline" in d
 
 
 def test_an_enum_and_a_default_both_survive():

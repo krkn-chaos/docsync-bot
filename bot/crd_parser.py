@@ -23,12 +23,13 @@ _NOT_SECRET = ("ref", "type", "name", "uuid", "path", "id")
 
 
 def _text(node):
-    """A description, flattened onto one line.
+    """A description, with its line structure kept.
 
-    controller-gen hard-wraps at 80 columns, so the raw value is multi-line and
-    breaks out of its table cell. Escaping happens at the emit sink, in
-    emitter._param_dict, so every source gets it and not just this one."""
-    return " ".join((node.get("description") or "").split()) or None
+    param-table renders the cell into an HTML <td>, not a markdown pipe row, so
+    a newline is safe: hard wraps rejoin as one paragraph and a bullet list stays
+    a list. Flattening lost no words but made list-shaped comments run-ons.
+    Escaping happens at the emit sink, in emitter._param_dict."""
+    return (node.get("description") or "").strip() or None
 
 
 def _default(node):
