@@ -107,8 +107,9 @@ def _parse_export_line(line: str) -> ParamRecord | None:
     elif body.startswith((":=", ":-")):
         default, required = _strip_quotes(body[2:]), False
     elif body.startswith(":"):
-        # Malformed-but-intentional default, e.g. ${VAR:""} or ${VAR:False}
-        default, required = _strip_quotes(body[1:]), False
+        # ${VAR:x} is substring expansion, not a default -- always "" on an
+        # unset VAR regardless of x. Verified in bash.
+        default, required = "", False
     else:
         # Other expansions (%, #, /, etc.) -- not a tunable default
         return None
@@ -233,8 +234,9 @@ def extract_krknctl_params(path: Path) -> list[ParamRecord]:
     return records
 
 
-# Set by the run.sh wrapper, not declared in either source.
-_INFRA_NAMES = {"SCENARIO_TYPE", "SCENARIO_FILE", "IMAGE"}
+# Baked into the container image at build time, not a scenario-local knob.
+# IMAGE is not here: it's a real, user-configurable per-scenario param.
+_INFRA_NAMES = {"SCENARIO_TYPE", "SCENARIO_FILE"}
 
 
 def build_skip_list(krkn_hub_root, krkn_root) -> dict[str, str | None]:
@@ -251,12 +253,14 @@ def build_skip_list(krkn_hub_root, krkn_root) -> dict[str, str | None]:
     return out
 
 
-def is_global(record, skip) -> bool:
-    """True when a per-scenario table must not repeat this param. A scenario
-    that overrides the default documents its own value, so it is kept."""
+def is_global(record, skip) -> str | None:
+    """Reason a per-scenario table must not repeat this param, or None when it
+    belongs there. An override of the default is kept, never excluded."""
     if record.name in _INFRA_NAMES:
-        return True
-    return record.name in skip and record.default == skip[record.name]
+        return "infra: set by the run.sh wrapper, not a reader-configurable knob"
+    if record.name in skip and record.default == skip[record.name]:
+        return f"same as the global default ({skip[record.name]!r})"
+    return None
 
 
 def require_sources(krkn_hub_root, krkn_root) -> None:
