@@ -5,6 +5,7 @@ import pytest
 import yaml
 
 from bot import operator
+from bot.operator import SECTION
 
 CRDS = Path(__file__).parent / "fixtures" / "crd"
 
@@ -105,11 +106,11 @@ def test_a_second_run_changes_nothing(repo):
     written, _, _ = run(repo)
     before = {f: Path(f).read_bytes() for f in written}
     pages_before = {p: Path(p).read_bytes()
-                    for p in (repo / "website").rglob("api-reference/*.md")}
+                    for p in (repo / "website").rglob(f"{Path(SECTION).name}/*.md")}
     run(repo)
     assert {f: Path(f).read_bytes() for f in written} == before
     assert {p: Path(p).read_bytes()
-            for p in (repo / "website").rglob("api-reference/*.md")} == pages_before
+            for p in (repo / "website").rglob(f"{Path(SECTION).name}/*.md")} == pages_before
 
 
 def test_a_page_edited_by_hand_survives_the_next_run(repo):
@@ -468,7 +469,7 @@ def test_drift_reports_a_table_whose_source_section_is_gone(repo):
                if f.kind == "orphan-table"]
     assert [(f.scenario, f.source) for f in orphans] == [("krknusers", "status")]
     # The page has to be edited too, so it points at the page, not the data file.
-    assert orphans[0].table_file.endswith("api-reference/krknusers.md")
+    assert orphans[0].table_file.endswith(f"{SECTION}/krknusers.md")
 
 
 def test_a_dropped_section_is_a_maintainer_job_not_a_fix(repo):

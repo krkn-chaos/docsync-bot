@@ -1,5 +1,6 @@
 import yaml
 
+from bot.operator import SECTION
 from bot.targets import operator_groups, resolve
 
 # The plurals a real index holds. Kept short; only membership matters here.
@@ -25,12 +26,12 @@ def test_an_operator_group_resolves_to_the_operator_target():
 
 def test_the_crd_index_and_a_reference_page_both_mean_operator():
     assert resolve(["data/krkn_operator_crds.yaml"], CRDS) == ["operator"]
-    assert resolve(["content/en/docs/krkn-operator/api-reference/krknusers.md"],
+    assert resolve([f"{SECTION}/krknusers.md"],
                    CRDS) == ["operator"]
 
 
 def test_a_page_the_bot_links_resolves_to_the_operator():
-    """link_pages appends a crd-ref to six prose pages, none under api-reference/.
+    """link_pages appends a crd-ref to six prose pages, none under the generated section.
     A pull request whose only change is one of those links resolved to nothing,
     so /resync exited `no target given`."""
     assert resolve(["content/en/docs/krkn-operator/usage/chaos-studio.md"],

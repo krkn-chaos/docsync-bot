@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the krkn-operator API reference from its CRDs.
+"""Generate the krkn-operator CRD reference from its CRDs.
 
 One data file per kind per section, and one page per kind. Every CRD field is
 described at source, so the model is never called: the chain is wired anyway so
@@ -18,7 +18,9 @@ from bot.report import write_report
 CRD_GLOB = "config/crd/bases/*.yaml"
 # The hand-written operator docs, and the generated reference nested inside them.
 PAGES_ROOT = "content/en/docs/krkn-operator"
-SECTION = f"{PAGES_ROOT}/api-reference"
+# The CRDs are the operator's internal API; the REST API is the external one.
+# The crd-ref href must match this, and a test pins the two together.
+SECTION = f"{PAGES_ROOT}/crd-reference"
 SOURCES = ("spec", "status", "columns")
 # plural -> kind, short name, field count. The crd-ref shortcode resolves against
 # this, so a renamed CRD fails the site build instead of leaving a 404 in prose.
@@ -117,13 +119,17 @@ def _page(meta, sources):
 
 
 _INDEX_HEAD = """---
-title: API Reference
+title: CRD Reference
 description: Fields of every krkn-operator custom resource
 weight: 6
 ---
 
 The operator is driven by custom resources. These pages are generated from the
 CRDs in krkn-operator, so a field here always matches the cluster.
+
+These custom resources are the operator's internal API. The supported interface
+from outside the cluster is its REST API, whose specification ships with
+krkn-operator and is not published here yet.
 
 To fix a description, edit the Go doc comment in `api/v1alpha1` upstream. The
 next sync carries it here.
@@ -236,13 +242,13 @@ def link_pages(website_root):
             continue
         refs = " &ensp; ".join(f'{{{{< crd-ref crd="{c}" >}}}}' for c in crds)
         page.write_text(f"{page.read_text(encoding='utf-8').rstrip()}"
-                        f"\n\n---\n\n**API reference:** {refs}\n", encoding="utf-8")
+                        f"\n\n---\n\n**CRD reference:** {refs}\n", encoding="utf-8")
         written.append(page)
     return written
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Generate the krkn-operator API reference")
+    ap = argparse.ArgumentParser(description="Generate the krkn-operator CRD reference")
     ap.add_argument("--operator", required=True, help="Path to the krkn-operator repo root")
     ap.add_argument("--website", default=".", help="Path to the website repo root")
     ap.add_argument("--source-ref", default="HEAD")
