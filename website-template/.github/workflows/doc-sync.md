@@ -144,8 +144,8 @@ steps:
     env:
       TARGETS: ${{ steps.scn.outputs.scenarios }}
     run: |
-      git config user.name "krkn-docs-bot"
-      git config user.email "krkn-docs-bot@users.noreply.github.com"
+      git config user.name "krkn-doc-sync-bot"
+      git config user.email "krkn-doc-sync-bot@users.noreply.github.com"
       git checkout -b "docs-sync-${{ github.run_number }}"
       git add -A
 
