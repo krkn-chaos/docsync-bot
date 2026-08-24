@@ -3,8 +3,8 @@ name: Trigger docs sync
 # Part of the krkn docs-sync bot: krkn-chaos/website#320.
 #
 #   Watches   containers/krknctl-input.json, which owns the global parameters
-#   Sends     "globals" to Doc Sync on StrikerEureka34/website_2
-#   Changes   nothing here: its app token is scoped to website_2
+#   Sends     "globals" to Doc Sync on krkn-chaos/website
+#   Changes   nothing here: its app token is scoped to the website
 #
 # push, not pull_request: a fork PR gets no secrets, and a merge is a push anyway.
 
@@ -27,8 +27,8 @@ jobs:
         with:
           app-id: ${{ secrets.DOC_SYNC_BOT_APP_ID }}
           private-key: ${{ secrets.DOC_SYNC_BOT_APP_PRIVATE_KEY }}
-          owner: StrikerEureka34
-          repositories: website_2
+          owner: krkn-chaos
+          repositories: website
 
       - name: Dispatch doc-sync on the website
         env:
@@ -37,5 +37,5 @@ jobs:
           # One file, one target: "globals" routes to the bot's global entry
           # point rather than to a scenario directory.
           gh workflow run doc-sync.lock.yml \
-            --repo StrikerEureka34/website_2 \
+            --repo krkn-chaos/website \
             -f scenarios="globals"
