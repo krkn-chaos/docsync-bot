@@ -10,9 +10,18 @@ from bot.parser import (doc_descriptions, extract_env_params,
 from bot.describe import describe_fn
 from bot.descriptions import attach_reasons, resolve_descriptions
 from bot.emitter import emit_data_file, load_previous
-from bot.report import write_report
+from bot.report import write_report, EXCLUDED
 
 
+
+
+def _split(records, skip):
+    """(kept, excluded), excluded as (name, reason) pairs."""
+    kept, excluded = [], []
+    for r in records:
+        reason = is_global(r, skip)
+        (excluded.append((r.name, reason)) if reason else kept.append(r))
+    return kept, excluded
 
 
 def _krknctl_records(scn):
@@ -82,7 +91,9 @@ def run(scenario, krkn_hub_root, website_root, krkn_root: str | Path = "krkn",
 
     env_comments = {}
     if (scn / "env.sh").exists():
-        recs = [r for r in extract_env_params(scn / "env.sh") if not is_global(r, skip)]
+        recs, excluded = _split(extract_env_params(scn / "env.sh"), skip)
+        gaps += [(scenario, "krkn-hub", name, EXCLUDED, reason, "")
+                 for name, reason in excluded]
         if recs:
             # Only the inline comments: what env.sh itself says, before this tab
             # resolves anything. The other tab borrows these below.
@@ -98,8 +109,9 @@ def run(scenario, krkn_hub_root, website_root, krkn_root: str | Path = "krkn",
                     r.type = match.type
             gaps += _emit_one(scenario, "krkn-hub", recs, website_root, source_ref, scn, memo)
     if (scn / "krknctl-input.json").exists():
-        recs = [r for r in extract_krknctl_params(scn / "krknctl-input.json")
-                if not is_global(r, skip)]
+        recs, excluded = _split(extract_krknctl_params(scn / "krknctl-input.json"), skip)
+        gaps += [(scenario, "krknctl", name, EXCLUDED, reason, "")
+                 for name, reason in excluded]
         if recs:
             # Symmetric with the borrow above. Without it a param described only
             # by an env.sh comment renders on one tab and blank on the other.

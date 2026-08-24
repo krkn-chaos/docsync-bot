@@ -42,8 +42,9 @@ def test_skip_list_covers_both_sources(tmp_path):
     assert skip["WAIT_DURATION"] == "60"
     assert "TELEMETRY_ENABLED" in skip
     # Set by run.sh, so neither source declares them. is_global knows them.
-    for name in ("SCENARIO_TYPE", "SCENARIO_FILE", "IMAGE"):
+    for name in ("SCENARIO_TYPE", "SCENARIO_FILE"):
         assert is_global(ParamRecord(name=name), skip)
+    assert is_global(ParamRecord(name="IMAGE"), skip) is None  # real, not infra
 
 
 def test_skip_list_tolerates_a_missing_source(tmp_path):
@@ -72,9 +73,11 @@ def test_extract_malformed_colon_empty_default(tmp_path):
 
 
 def test_extract_malformed_colon_value_default(tmp_path):
-    """global env.sh pattern: ${KUBE_VIRT_EXIT_ON_FAIL:False}"""
+    """global env.sh: ${KUBE_VIRT_EXIT_ON_FAIL:False} is substring expansion,
+    not a default. "" on an unset var, verified in bash, never "False"."""
     recs = _records(tmp_path, "export KUBE_VIRT_EXIT_ON_FAIL=${KUBE_VIRT_EXIT_ON_FAIL:False}\n")
-    assert recs["KUBE_VIRT_EXIT_ON_FAIL"].default == "False"
+    assert recs["KUBE_VIRT_EXIT_ON_FAIL"].default == ""
+    assert recs["KUBE_VIRT_EXIT_ON_FAIL"].required is False
 
 
 def test_extract_inline_comment_becomes_description(tmp_path):
@@ -194,7 +197,7 @@ def test_golden_global_env():
     assert recs["KUBE_VIRT_SSH_NODE"].default == ""
     assert recs["KUBE_VIRT_NODE_NAME"].description is not None
     assert "node name" in recs["KUBE_VIRT_NODE_NAME"].description
-    assert recs["KUBE_VIRT_EXIT_ON_FAIL"].default == "False"
+    assert recs["KUBE_VIRT_EXIT_ON_FAIL"].default == ""  # substring expansion, not "False"
     assert "{1,2}" in recs["TELEMETRY_FILTER_PATTERN"].default
     # $( ) re-exports skipped; first declaration wins
     assert recs["RESILIENCY_RUN_MODE"].default == "standalone"
@@ -486,9 +489,23 @@ def test_a_scenario_that_overrides_a_global_default_keeps_the_param():
 
 
 def test_infra_params_are_global_whatever_their_default():
-    """IMAGE is set by the run.sh wrapper, so a scenario-local value is still
-    not something a reader configures."""
-    assert is_global(ParamRecord(name="IMAGE", default="quay.io/other"), {})
+    """Baked into the image at build time -- no override can matter."""
+    assert is_global(ParamRecord(name="SCENARIO_TYPE", default="whatever"), {})
+    assert is_global(ParamRecord(name="SCENARIO_FILE", default="whatever"), {})
+
+
+def test_image_is_a_real_param_not_infra():
+    """Unlike its former infra neighbours, IMAGE is user-configurable."""
+    assert is_global(ParamRecord(name="IMAGE", default="quay.io/other"), {}) is None
+
+
+def test_is_global_returns_a_reason_not_just_true():
+    """Non-empty, so `if not is_global(...)` still filters correctly."""
+    reason = is_global(ParamRecord(name="SCENARIO_TYPE"), {})
+    assert isinstance(reason, str) and reason
+    reason = is_global(ParamRecord(name="WAIT_DURATION", default="60"),
+                       {"WAIT_DURATION": "60"})
+    assert isinstance(reason, str) and "60" in reason
 
 
 def _hub(tmp_path, scenario, doc_text=None):

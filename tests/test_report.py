@@ -1,4 +1,4 @@
-from bot.report import main, render, write_report
+from bot.report import EXCLUDED, main, render, write_report
 
 
 def _row(md, prefix):
@@ -81,6 +81,32 @@ def test_an_orphan_row_is_reported_separately():
     md = render([("node-scenarios", "krknctl", "disks", "orphan", "", "")])
     assert "### Dropped, not in any source (1)" in md
     assert "| node-scenarios | krknctl | disks |" in md
+
+
+def test_excluded_params_get_their_own_section_with_a_reason():
+    md = render([("s", "krkn-hub", "SCENARIO_TYPE", EXCLUDED,
+                 "infra: set by the run.sh wrapper, not a reader-configurable knob", "")])
+    assert "### Not on this page (1)" in md
+    assert "| s | SCENARIO_TYPE | infra: set by the run.sh wrapper" in md
+
+
+def test_an_excluded_param_on_both_tabs_is_reported_once():
+    md = render([("s", "krkn-hub", "SCENARIO_TYPE", EXCLUDED, "infra", ""),
+                 ("s", "krknctl", "SCENARIO_TYPE", EXCLUDED, "infra", "")])
+    assert md.count("| s | SCENARIO_TYPE |") == 1
+    assert "### Not on this page (1)" in md
+
+
+def test_excluded_does_not_leak_into_the_blank_or_model_sections():
+    md = render([("s", "krkn-hub", "SCENARIO_TYPE", EXCLUDED, "infra", ""),
+                 ("s", "krkn-hub", "P", "llm", "written", "")])
+    assert "### Written by the model, review before merge (1)" in md
+    assert "SCENARIO_TYPE" not in md.split("### Written by the model")[1].split("###")[0]
+
+
+def test_a_run_with_only_exclusions_renders_just_that_section():
+    md = render([("s", "krkn-hub", "SCENARIO_TYPE", EXCLUDED, "infra", "")])
+    assert md.strip().startswith("### Not on this page")
 
 
 def test_output_is_sorted_so_reruns_are_byte_identical():

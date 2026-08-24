@@ -32,6 +32,7 @@ def _fix_hint(blank):
 FILLED = ("published-table", "hub-doc")
 MODEL = "llm"
 ORPHAN = "orphan"
+EXCLUDED = "excluded"
 
 
 def _cell(text):
@@ -60,6 +61,7 @@ def render(gaps):
     filled = _once(g for g in gaps if g[3] in FILLED)
     model = _once(g for g in gaps if g[3] == MODEL)
     blank = _once(g for g in gaps if g[3] == "")
+    excluded = _once(g for g in gaps if g[3] == EXCLUDED)
     # Orphans keep their source: which tab lost the row is the useful part.
     orphan = sorted(set(g for g in gaps if g[3] == ORPHAN))
     out = []
@@ -94,6 +96,12 @@ def render(gaps):
                 "| Scenario | Source | Parameter |",
                 "| --- | --- | --- |"]
         out += [f"| {s} | {sr} | {p} |" for s, sr, p, _f, _t, _n in orphan]
+        out.append("")
+    if excluded:
+        out += [f"### Not on this page ({len(excluded)})\n",
+                "| Scenario | Parameter | Why |",
+                "| --- | --- | --- |"]
+        out += [f"| {s} | {p} | {_cell(why)} |" for s, _, p, _f, why, _n in excluded]
         out.append("")
     return "\n".join(out)
 
