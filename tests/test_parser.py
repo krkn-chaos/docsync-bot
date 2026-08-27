@@ -41,10 +41,10 @@ def test_skip_list_covers_both_sources(tmp_path):
     skip = build_skip_list(hub, krkn)
     assert skip["WAIT_DURATION"] == "60"
     assert "TELEMETRY_ENABLED" in skip
-    # Set by run.sh, so neither source declares them. is_global knows them.
-    for name in ("SCENARIO_TYPE", "SCENARIO_FILE"):
-        assert is_global(ParamRecord(name=name), skip)
-    assert is_global(ParamRecord(name="IMAGE"), skip) is None  # real, not infra
+    # The skip list is the only exclusion left: a name it does not carry, with a
+    # default it does not match, belongs on the page.
+    for name in ("SCENARIO_TYPE", "SCENARIO_FILE", "IMAGE"):
+        assert is_global(ParamRecord(name=name), skip) is None
 
 
 def test_skip_list_tolerates_a_missing_source(tmp_path):
@@ -488,10 +488,11 @@ def test_a_scenario_that_overrides_a_global_default_keeps_the_param():
     assert not is_global(ParamRecord(name="WAIT_DURATION", default="300"), skip)
 
 
-def test_infra_params_are_global_whatever_their_default():
-    """Baked into the image at build time -- no override can matter."""
-    assert is_global(ParamRecord(name="SCENARIO_TYPE", default="whatever"), {})
-    assert is_global(ParamRecord(name="SCENARIO_FILE", default="whatever"), {})
+def test_scenario_type_and_file_reach_the_table():
+    """They were dropped as infra, so a reader looking for a param the env.sh
+    plainly declares found nothing. docsync-bot#31."""
+    assert is_global(ParamRecord(name="SCENARIO_TYPE", default="whatever"), {}) is None
+    assert is_global(ParamRecord(name="SCENARIO_FILE", default="whatever"), {}) is None
 
 
 def test_image_is_a_real_param_not_infra():
@@ -501,8 +502,6 @@ def test_image_is_a_real_param_not_infra():
 
 def test_is_global_returns_a_reason_not_just_true():
     """Non-empty, so `if not is_global(...)` still filters correctly."""
-    reason = is_global(ParamRecord(name="SCENARIO_TYPE"), {})
-    assert isinstance(reason, str) and reason
     reason = is_global(ParamRecord(name="WAIT_DURATION", default="60"),
                        {"WAIT_DURATION": "60"})
     assert isinstance(reason, str) and "60" in reason

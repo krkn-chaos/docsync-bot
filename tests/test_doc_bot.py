@@ -1,6 +1,7 @@
 import yaml
+import bot.descriptions as descriptions
 import bot.doc_bot as doc_bot
-from bot.report import EXCLUDED
+from bot.report import EXCLUDED, NEW
 
 
 def _site(tmp_path):
@@ -219,9 +220,10 @@ def test_emit_then_reemit_is_byte_identical(tmp_path):
     assert out.read_text(encoding="utf-8") == first
 
 
-def test_image_reaches_the_table_infra_names_dont_but_are_reported(tmp_path):
-    """IMAGE must publish. SCENARIO_TYPE/FILE must not, but must be named
-    in gaps instead of silently dropped."""
+def test_scenario_type_and_file_publish_with_a_built_in_description(tmp_path):
+    """They were dropped as infra, so a reader found nothing for a param the
+    env.sh plainly declares. No source describes them, so the bot supplies the
+    text and the report says so. docsync-bot#31."""
     hub = _scn(tmp_path, "node-cpu-hog", env=(
         'export SCENARIO_TYPE=${SCENARIO_TYPE:=hog_scenarios}\n'
         'export SCENARIO_FILE=${SCENARIO_FILE:=scenarios/kube/cpu-hog.yml}\n'
@@ -231,13 +233,45 @@ def test_image_reaches_the_table_infra_names_dont_but_are_reported(tmp_path):
     gaps = doc_bot.run(scenario="node-cpu-hog", krkn_hub_root=hub, website_root=website)
 
     rows = _params(website, "node-cpu-hog")
-    assert "IMAGE" in rows
-    assert "SCENARIO_TYPE" not in rows
-    assert "SCENARIO_FILE" not in rows
+    for name in ("IMAGE", "SCENARIO_TYPE", "SCENARIO_FILE"):
+        assert name in rows
+    assert rows["SCENARIO_TYPE"]["default"] == "hog_scenarios"
+    assert "image" in rows["SCENARIO_FILE"]["description"].lower()
+    assert rows["SCENARIO_FILE"]["description_source"] == "built-in"
+    assert {g[2] for g in gaps if g[3] == "built-in"} == {"SCENARIO_TYPE",
+                                                          "SCENARIO_FILE"}
 
-    excluded = {g[2]: g[4] for g in gaps if g[3] == EXCLUDED}
-    assert set(excluded) == {"SCENARIO_TYPE", "SCENARIO_FILE"}
-    assert all("infra" in reason for reason in excluded.values())
+
+def test_a_source_comment_beats_the_built_in_description(tmp_path):
+    """The built-in is a floor, not a ceiling. If krkn-hub starts describing
+    them, that wins and nothing in the bot has to change."""
+    hub = _scn(tmp_path, "node-cpu-hog", env=(
+        'export SCENARIO_TYPE=${SCENARIO_TYPE:=hog}   # What krkn dispatches on\n'
+    ))
+    website = _site(tmp_path)
+    gaps = doc_bot.run(scenario="node-cpu-hog", krkn_hub_root=hub, website_root=website)
+    rows = _params(website, "node-cpu-hog")
+    assert rows["SCENARIO_TYPE"]["description"] == "What krkn dispatches on"
+    assert "description_source" not in rows["SCENARIO_TYPE"], "taken from source"
+    # Still announced as newly documented, but crediting the source, not the bot.
+    row = [g for g in gaps if g[3] == NEW and g[2] == "SCENARIO_TYPE"]
+    assert [g[5] for g in row] == ["source comment"]
+
+
+def test_a_built_in_is_announced_once_and_stays_editable(tmp_path, monkeypatch):
+    """Two runs: both bugs only show on the second. The text froze, and the
+    report re-announced it as new."""
+    hub = _scn(tmp_path, "node-cpu-hog",
+               env='export SCENARIO_TYPE=${SCENARIO_TYPE:=hog_scenarios}\n')
+    website = _site(tmp_path)
+
+    first = doc_bot.run(scenario="node-cpu-hog", krkn_hub_root=hub, website_root=website)
+    assert [g[2] for g in first if g[3] == NEW] == ["SCENARIO_TYPE"]
+
+    monkeypatch.setitem(descriptions.BUILT_IN, "SCENARIO_TYPE", "Reworded.")
+    second = doc_bot.run(scenario="node-cpu-hog", krkn_hub_root=hub, website_root=website)
+    assert _params(website, "node-cpu-hog")["SCENARIO_TYPE"]["description"] == "Reworded."
+    assert [g for g in second if g[3] == NEW] == [], "announced new twice"
 
 
 def test_an_env_comment_reaches_the_krknctl_tab_too(tmp_path):

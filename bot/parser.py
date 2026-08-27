@@ -236,7 +236,8 @@ def extract_krknctl_params(path: Path) -> list[ParamRecord]:
 
 # Baked into the container image at build time, not a scenario-local knob.
 # IMAGE is not here: it's a real, user-configurable per-scenario param.
-_INFRA_NAMES = {"SCENARIO_TYPE", "SCENARIO_FILE"}
+
+
 
 
 def build_skip_list(krkn_hub_root, krkn_root) -> dict[str, str | None]:
@@ -256,8 +257,8 @@ def build_skip_list(krkn_hub_root, krkn_root) -> dict[str, str | None]:
 def is_global(record, skip) -> str | None:
     """Reason a per-scenario table must not repeat this param, or None when it
     belongs there. An override of the default is kept, never excluded."""
-    if record.name in _INFRA_NAMES:
-        return "infra: set by the run.sh wrapper, not a reader-configurable knob"
+    # SCENARIO_TYPE and SCENARIO_FILE were excluded here as infra, they are
+    # documented instead now. See krkn-chaos/docsync-bot#31.
     if record.name in skip and record.default == skip[record.name]:
         return f"same as the global default ({skip[record.name]!r})"
     return None

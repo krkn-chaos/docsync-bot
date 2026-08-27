@@ -15,7 +15,7 @@ from bot.parser import extract_env_params, extract_krknctl_params, require_sourc
 from bot.emitter import emit_data_file, load_previous
 from bot.describe import describe_fn
 from bot.descriptions import attach_reasons, resolve_descriptions
-from bot.report import write_report
+from bot.report import TABLE, malformed_descriptions, write_report
 
 GLOBAL_SCENARIO = "globals"
 OTHER_GROUP = "other"
@@ -111,10 +111,10 @@ def emit(website_root, krkn_hub_root, krkn_root, source_ref="HEAD"):
         ordered = [r for _, rs in sorted(_by_group(records).items()) for r in rs]
         prev = load_previous(
             Path(website_root) / "data/params" / GLOBAL_SCENARIO / f"{source}.yaml")
-        # A borrow is re-derived every run, so a curated page row can still
-        # overtake it. Kept, it would freeze krknctl's wording forever.
+        # Re-derived every run, so a curated page row can still overtake them.
+        # Kept, they would freeze krknctl's wording and the built-in text forever.
         existing = {n: p.get("description", "") for n, p in prev.items()
-                    if p.get("description_source") != "krknctl"}
+                    if p.get("description_source") not in ("krknctl", "built-in")}
         # The published table is read once, by the run that replaces it. Without
         # this the provenance marker vanishes on the next run.
         for r in ordered:
@@ -123,7 +123,8 @@ def emit(website_root, krkn_hub_root, krkn_root, source_ref="HEAD"):
         reasons = {}
         descs, g = resolve_descriptions(
             GLOBAL_SCENARIO, ordered, existing,
-            describe_fn(krkn_hub_root, ordered, reasons), published=published[source])
+            describe_fn(krkn_hub_root, ordered, reasons),
+            published=published[source], known=set(prev))
         g = attach_reasons(g, reasons)
         gaps += [(GLOBAL_SCENARIO, source) + x for x in g]
         # A published row no source produces is a whole row dropped. The
@@ -131,6 +132,8 @@ def emit(website_root, krkn_hub_root, krkn_root, source_ref="HEAD"):
         names = {r.name for r in ordered}
         gaps += [(GLOBAL_SCENARIO, source, k, "orphan", "", "")
                  for k in published[source] if k not in names]
+        gaps += [(GLOBAL_SCENARIO, source) + x
+                 for x in malformed_descriptions(descs)]
         written.append(
             emit_data_file(website_root, GLOBAL_SCENARIO, source, ordered, descs, source_ref))
     return written, gaps
@@ -167,6 +170,13 @@ def scaffold(website_root, krkn_hub_root, krkn_root):
     return report
 
 
+def _table_gap(line):
+    """A scaffold line, "<page>: <what happened>", as a gap row. Split once: a
+    page name has no ": " in it, but a reason can."""
+    page, _, what = line.partition(": ")
+    return ("globals", "", page, TABLE, what, "")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Generate global parameter data files")
     ap.add_argument("--krkn-hub", required=True, help="Path to the krkn-hub repo root")
@@ -183,8 +193,12 @@ def main() -> None:
         print(path)
     write_report(gaps)
     if args.scaffold:
-        for line in scaffold(args.website, args.krkn_hub, args.krkn):
+        lines = scaffold(args.website, args.krkn_hub, args.krkn)
+        for line in lines:
             print(line)
+        # Stdout only reaches the Actions log. A table the bot left alone is
+        # still on the page, so the reason belongs in the commit message.
+        write_report([_table_gap(line) for line in lines])
 
 
 if __name__ == "__main__":

@@ -1,15 +1,34 @@
+from bot.report import NEW
+
 _NO_SOURCE = "no description in any source and no published row"
+
+# Declared by 25 scenarios, described by none. Checked last, above the model, so
+# any source that starts describing them takes over on its own.
+BUILT_IN = {
+    "SCENARIO_TYPE": "Plugin key krkn dispatches the scenario on. Fixed by the "
+                     "container image, not a knob to change.",
+    "SCENARIO_FILE": "Path to the scenario file baked into the container image. "
+                     "Fixed by the image, not a knob to change.",
+}
+
+
+# What the report prints in the "Text from" column of a first-time row.
+_ORIGIN = {"built-in": "the bot", "env-comment": "source comment",
+           "krknctl": "krknctl", "hub-doc": "scenario doc",
+           "published-table": "published table", "crd": "crd comment"}
 
 
 def resolve_descriptions(scenario, records, existing, llm_fn, published=None,
-                         borrow_source="krknctl", doc=None):
+                         borrow_source="krknctl", doc=None, known=()):
     """Return (descriptions_by_name, gaps), gaps being (name, filled_from, text,
     note) for each description not taken from a source file. `note` is filled in
     later by attach_reasons; nothing here knows why a row needs a look.
     Priority: source -> published table -> existing file -> scenario doc ->
     other source -> LLM.
     The published table is human-written, so it ranks second and wins only once:
-    the run that reads it also removes it."""
+    the run that reads it also removes it.
+    `known` is every name the previous generated file held, so a built-in is
+    announced as new once and not on every later run."""
     published = published or {}
     doc = doc or {}
     out, gaps, residual = {}, [], []
@@ -33,8 +52,16 @@ def resolve_descriptions(scenario, records, existing, llm_fn, published=None,
             # label names where it came from: krknctl, or a CRD column's field.
             out[r.name] = r.borrowed_description
             r.description_source = borrow_source
+        elif BUILT_IN.get(r.name):
+            out[r.name] = BUILT_IN[r.name]
+            r.description_source = "built-in"
         else:
             residual.append(r.name)
+    # Announced once, on the run that first puts them in a table.
+    for r in records:
+        if r.name in BUILT_IN and r.name not in known:
+            gaps.append((r.name, NEW, out[r.name],
+                         _ORIGIN.get(r.description_source, "source")))
     if residual:
         generated = llm_fn(scenario, residual)
         by_name = {r.name: r for r in records}
@@ -52,6 +79,9 @@ def resolve_descriptions(scenario, records, existing, llm_fn, published=None,
 
 def attach_reasons(gaps, reasons):
     """A blank row carries the reason as its text; a published row carries it as
-    a review note, so the model's output is never withheld."""
-    return [(n, f, reasons.get(n, t), "") if f == "" else (n, f, t, reasons.get(n, ""))
-            for n, f, t, _ in gaps]
+    a review note, so the model's output is never withheld. A NEW row already
+    uses the note for where its text came from, so it passes through."""
+    return [(n, f, t, o) if f == NEW
+            else (n, f, reasons.get(n, t), "") if f == ""
+            else (n, f, t, reasons.get(n, ""))
+            for n, f, t, o in gaps]

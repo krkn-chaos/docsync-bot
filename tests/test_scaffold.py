@@ -1,4 +1,4 @@
-from bot.scaffold import (_row_cells, inject_shortcode, published_cell,
+from bot.scaffold import (_first_cell, _is_param_table, _row_cells, inject_shortcode, published_cell,
                           published_table, scaffold_scenario)
 
 
@@ -224,3 +224,26 @@ def test_an_escaped_pipe_stays_in_its_cell():
     Type read the tail of the description and then froze in the data file."""
     assert _row_cells(r"| MODE | one of a \| b | string |") == \
         ["MODE", "one of a | b", "string"]
+
+
+def test_a_description_keeps_its_trailing_code_span():
+    """Stripping the row's outer backticks truncated the span and unbalanced the
+    rest of the cell. The real case: website#616 flagged RESILIENCY_FILE."""
+    row = ("| `RESILIENCY_FILE` | Path to a YAML file containing SLO definitions; "
+           "defaults to the alerts profile or `config/alerts.yaml` | config/alerts.yaml |")
+    cells = _row_cells(row)
+    assert cells[1].endswith("`config/alerts.yaml`")
+    assert cells[1].count("`") % 2 == 0
+
+
+def test_a_name_cell_is_still_bare():
+    cells = _row_cells("| `RESILIENCY_FILE` | prose | x |")
+    assert cells[0] == "`RESILIENCY_FILE`", "the raw cell keeps its formatting"
+    assert _first_cell("| `RESILIENCY_FILE` | prose | x |") == "RESILIENCY_FILE"
+    assert _first_cell("| `--telemetry-enabled` | prose | x |") == "telemetry-enabled"
+
+
+def test_a_backticked_header_still_marks_a_param_table():
+    assert _is_param_table("| `Parameter` | Description | Default |")
+    assert _is_param_table("| Parameter | Description | Default |")
+    assert not _is_param_table("| Step | Notes |")
