@@ -99,7 +99,10 @@ params:
     assert cells(site.html(rel)) == ["RETRIES", "How many retries.", "number", "0"]
 
 
-def test_required_false_shows_and_renders(site):
+def test_a_column_of_nothing_but_false_is_dropped(site):
+    """Every env.sh param carries required: false, so the column appeared on
+    krkn-hub tables reading No on every row. The hand-written tables it replaces
+    have no Required column at all."""
     site.data("r", "krknctl", """\
 params:
   - name: FLAG
@@ -108,9 +111,27 @@ params:
 """)
     rel = site.page("r", "r", "krknctl")
     assert site.build().returncode == 0
+    assert headers(site.html(rel)) == ["Parameter", "Description"]
+    assert cells(site.html(rel)) == ["FLAG", "A flag."]
+
+
+def test_required_shows_once_one_row_needs_it(site):
+    """And then No still renders, so the column is not half empty."""
+    site.data("r2", "krknctl", """\
+params:
+  - name: NEEDED
+    description: Must be set.
+    required: true
+  - name: OPTIONAL
+    description: Has a default.
+    required: false
+""")
+    rel = site.page("r2", "r2", "krknctl")
+    assert site.build().returncode == 0
     assert headers(site.html(rel)) == ["Parameter", "Description", "Required"]
-    # Yes/No, not true/false: a docs table is read by people, not parsed.
-    assert cells(site.html(rel)) == ["FLAG", "A flag.", "No"]
+    # Yes/No, the wording the hand-written krknctl tables use.
+    assert cells(site.html(rel)) == ["NEEDED", "Must be set.", "Yes"]
+    assert cells(site.html(rel), row=1) == ["OPTIONAL", "Has a default.", "No"]
 
 
 def test_mixed_rows_empty_cells(site):
@@ -146,12 +167,13 @@ params:
     assert site.build().returncode == 0
     # Possible Values sits last: it is the sparsest column, so leading with it
     # pushed Default and Required off to the right on the widest tables.
+    # Required before Default, the order the hand-written tables use.
     assert headers(site.html(rel)) == [
-        "Parameter", "Description", "Type", "Default", "Required", "Possible Values",
+        "Parameter", "Description", "Type", "Required", "Default", "Possible Values",
     ]
     # Slash-joined: a comma reads as part of the value when a value contains one.
     assert cells(site.html(rel)) == [
-        "CLOUD_TYPE", "Cloud platform.", "enum", "aws", "Yes", "aws/gcp/azure",
+        "CLOUD_TYPE", "Cloud platform.", "enum", "Yes", "aws", "aws/gcp/azure",
     ]
 
 
