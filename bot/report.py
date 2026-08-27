@@ -33,6 +33,9 @@ FILLED = ("published-table", "hub-doc")
 MODEL = "llm"
 ORPHAN = "orphan"
 EXCLUDED = "excluded"
+# Declared by the source and dropped from every table until now. Its own section,
+# so a first appearance is not lost among rows that came from another file.
+NEW = "built-in"
 # What became of each hand-written table on a global page. A table the bot could
 # not resolve stays on the page, so the reason has to reach the reviewer.
 TABLE = "table"
@@ -82,7 +85,18 @@ def render(gaps):
     # sentence twice, and both tables are still sitting on the page.
     table = sorted(set(g for g in gaps if g[3] == TABLE))
     malformed = _once(g for g in gaps if g[3] == MALFORMED)
+    new = _once(g for g in gaps if g[3] == NEW)
     out = []
+    if new:
+        out += [f"### Documented here for the first time ({len(new)})\n",
+                "| Scenario | Parameter | Text from | Text |",
+                "| --- | --- | --- | --- |"]
+        out += [f"| {s} | {p} | {_cell(o)} | {_cell(t)} |"
+                for s, _, p, _f, t, o in new]
+        out += ["", "The source declares these; no table carried them until now.",
+                "- `source comment`: the source describes it, and that always wins.",
+                "- `the bot`: nothing describes it, so add a trailing comment in "
+                "the source to replace this text.\n"]
     if filled:
         out += [f"### Descriptions not taken from source ({len(filled)})\n",
                 "| Scenario | Parameter | Filled from | Text |",
