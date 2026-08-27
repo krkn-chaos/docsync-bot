@@ -62,15 +62,17 @@ def _emit_one(scenario, source, records, website_root, source_ref, scn, memo):
             r.description_source = prev.get(r.name, {}).get("description_source")
     published = {r.name: pub_desc[r.flag or r.name] for r in records
                  if (r.flag or r.name) in pub_desc}
-    # A borrow and a doc-table row are re-derived every run, so a curated page
-    # row can overtake them and an updated krkn-hub doc is not frozen out.
+    # Re-derived every run, so a curated page row can overtake them, an updated
+    # krkn-hub doc is not frozen out, and an edited BUILT_IN reaches the table.
     existing = {n: p.get("description", "") for n, p in prev.items()
-                if p.get("description_source") not in ("krknctl", "hub-doc")}
+                if p.get("description_source")
+                not in ("krknctl", "hub-doc", "built-in")}
     reasons = {}
     descs, gaps = resolve_descriptions(scenario, records, existing,
                                        describe_fn(scn, records, reasons, memo),
                                        published=published,
-                                       doc=doc_descriptions(scn))
+                                       doc=doc_descriptions(scn),
+                                       known=set(prev))
     emit_data_file(website_root, scenario, source, records, descs, source_ref)
     # A rejection reason beats "nothing described it": the two need opposite fixes.
     gaps = attach_reasons(gaps, reasons)

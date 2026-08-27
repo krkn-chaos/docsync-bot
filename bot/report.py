@@ -42,6 +42,9 @@ TABLE = "table"
 # A description the shortcode will not render as written. param-table passes it
 # through RenderString, so broken markdown reaches the page.
 MALFORMED = "malformed"
+# A \` is a literal backtick and opens nothing, so counting it would report
+# valid prose.
+_SPAN_TICK = re.compile(r"(?<!\\)`")
 
 
 def malformed_descriptions(descriptions):
@@ -49,7 +52,7 @@ def malformed_descriptions(descriptions):
     An odd backtick count leaves a code span open, swallowing the rest of the cell."""
     return [(name, MALFORMED, "unbalanced backtick, the code span never closes", "")
             for name, text in sorted(descriptions.items())
-            if (text or "").count("`") % 2]
+            if len(_SPAN_TICK.findall(text or "")) % 2]
 
 
 def _cell(text):
@@ -94,9 +97,9 @@ def render(gaps):
         out += [f"| {s} | {p} | {_cell(o)} | {_cell(t)} |"
                 for s, _, p, _f, t, o in new]
         out += ["", "The source declares these; no table carried them until now.",
-                "- `source comment`: the source describes it, and that always wins.",
                 "- `the bot`: nothing describes it, so add a trailing comment in "
-                "the source to replace this text.\n"]
+                "the source to replace this text.",
+                "- anything else names where the text came from, and that wins.\n"]
     if filled:
         out += [f"### Descriptions not taken from source ({len(filled)})\n",
                 "| Scenario | Parameter | Filled from | Text |",

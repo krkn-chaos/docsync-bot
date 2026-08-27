@@ -1,4 +1,5 @@
 import yaml
+import bot.descriptions as descriptions
 import bot.doc_bot as doc_bot
 from bot.report import EXCLUDED, NEW
 
@@ -255,6 +256,22 @@ def test_a_source_comment_beats_the_built_in_description(tmp_path):
     # Still announced as newly documented, but crediting the source, not the bot.
     row = [g for g in gaps if g[3] == NEW and g[2] == "SCENARIO_TYPE"]
     assert [g[5] for g in row] == ["source comment"]
+
+
+def test_a_built_in_is_announced_once_and_stays_editable(tmp_path, monkeypatch):
+    """Two runs: both bugs only show on the second. The text froze, and the
+    report re-announced it as new."""
+    hub = _scn(tmp_path, "node-cpu-hog",
+               env='export SCENARIO_TYPE=${SCENARIO_TYPE:=hog_scenarios}\n')
+    website = _site(tmp_path)
+
+    first = doc_bot.run(scenario="node-cpu-hog", krkn_hub_root=hub, website_root=website)
+    assert [g[2] for g in first if g[3] == NEW] == ["SCENARIO_TYPE"]
+
+    monkeypatch.setitem(descriptions.BUILT_IN, "SCENARIO_TYPE", "Reworded.")
+    second = doc_bot.run(scenario="node-cpu-hog", krkn_hub_root=hub, website_root=website)
+    assert _params(website, "node-cpu-hog")["SCENARIO_TYPE"]["description"] == "Reworded."
+    assert [g for g in second if g[3] == NEW] == [], "announced new twice"
 
 
 def test_an_env_comment_reaches_the_krknctl_tab_too(tmp_path):

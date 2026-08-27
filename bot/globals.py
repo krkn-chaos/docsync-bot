@@ -111,10 +111,10 @@ def emit(website_root, krkn_hub_root, krkn_root, source_ref="HEAD"):
         ordered = [r for _, rs in sorted(_by_group(records).items()) for r in rs]
         prev = load_previous(
             Path(website_root) / "data/params" / GLOBAL_SCENARIO / f"{source}.yaml")
-        # A borrow is re-derived every run, so a curated page row can still
-        # overtake it. Kept, it would freeze krknctl's wording forever.
+        # Re-derived every run, so a curated page row can still overtake them.
+        # Kept, they would freeze krknctl's wording and the built-in text forever.
         existing = {n: p.get("description", "") for n, p in prev.items()
-                    if p.get("description_source") != "krknctl"}
+                    if p.get("description_source") not in ("krknctl", "built-in")}
         # The published table is read once, by the run that replaces it. Without
         # this the provenance marker vanishes on the next run.
         for r in ordered:
@@ -123,7 +123,8 @@ def emit(website_root, krkn_hub_root, krkn_root, source_ref="HEAD"):
         reasons = {}
         descs, g = resolve_descriptions(
             GLOBAL_SCENARIO, ordered, existing,
-            describe_fn(krkn_hub_root, ordered, reasons), published=published[source])
+            describe_fn(krkn_hub_root, ordered, reasons),
+            published=published[source], known=set(prev))
         g = attach_reasons(g, reasons)
         gaps += [(GLOBAL_SCENARIO, source) + x for x in g]
         # A published row no source produces is a whole row dropped. The

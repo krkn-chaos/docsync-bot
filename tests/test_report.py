@@ -157,3 +157,11 @@ def test_an_unbalanced_backtick_is_reported():
     md = render([("globals", "krkn-hub") + rows[0]])
     assert "### Malformed markdown (1)" in md
     assert "| globals | B | unbalanced backtick" in md
+
+
+def test_an_escaped_backtick_is_not_a_code_span():
+    r"""\` is a literal backtick and opens nothing, so counting it would send a
+    reviewer to fix valid prose."""
+    rows = malformed_descriptions({"A": r"use \` to quote",
+                                   "B": r"a \` and one `open"})
+    assert [r[0] for r in rows] == ["B"]

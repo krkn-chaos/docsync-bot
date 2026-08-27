@@ -12,15 +12,23 @@ BUILT_IN = {
 }
 
 
+# What the report prints in the "Text from" column of a first-time row.
+_ORIGIN = {"built-in": "the bot", "env-comment": "source comment",
+           "krknctl": "krknctl", "hub-doc": "scenario doc",
+           "published-table": "published table", "crd": "crd comment"}
+
+
 def resolve_descriptions(scenario, records, existing, llm_fn, published=None,
-                         borrow_source="krknctl", doc=None):
+                         borrow_source="krknctl", doc=None, known=()):
     """Return (descriptions_by_name, gaps), gaps being (name, filled_from, text,
     note) for each description not taken from a source file. `note` is filled in
     later by attach_reasons; nothing here knows why a row needs a look.
     Priority: source -> published table -> existing file -> scenario doc ->
     other source -> LLM.
     The published table is human-written, so it ranks second and wins only once:
-    the run that reads it also removes it."""
+    the run that reads it also removes it.
+    `known` is every name the previous generated file held, so a built-in is
+    announced as new once and not on every later run."""
     published = published or {}
     doc = doc or {}
     out, gaps, residual = {}, [], []
@@ -49,11 +57,11 @@ def resolve_descriptions(scenario, records, existing, llm_fn, published=None,
             r.description_source = "built-in"
         else:
             residual.append(r.name)
-    # First time these reach a table, so name who supplied the text.
+    # Announced once, on the run that first puts them in a table.
     for r in records:
-        if r.name in BUILT_IN:
-            origin = "the bot" if r.description_source == "built-in" else "source comment"
-            gaps.append((r.name, NEW, out[r.name], origin))
+        if r.name in BUILT_IN and r.name not in known:
+            gaps.append((r.name, NEW, out[r.name],
+                         _ORIGIN.get(r.description_source, "source")))
     if residual:
         generated = llm_fn(scenario, residual)
         by_name = {r.name: r for r in records}
