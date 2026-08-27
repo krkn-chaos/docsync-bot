@@ -36,6 +36,17 @@ EXCLUDED = "excluded"
 # What became of each hand-written table on a global page. A table the bot could
 # not resolve stays on the page, so the reason has to reach the reviewer.
 TABLE = "table"
+# A description the shortcode will not render as written. param-table passes it
+# through RenderString, so broken markdown reaches the page.
+MALFORMED = "malformed"
+
+
+def malformed_descriptions(descriptions):
+    """(name, marker, reason, note) for each description whose markdown breaks.
+    An odd backtick count leaves a code span open, swallowing the rest of the cell."""
+    return [(name, MALFORMED, "unbalanced backtick, the code span never closes", "")
+            for name, text in sorted(descriptions.items())
+            if (text or "").count("`") % 2]
 
 
 def _cell(text):
@@ -70,6 +81,7 @@ def render(gaps):
     # Not deduped through _once: two sections claiming one group report the same
     # sentence twice, and both tables are still sitting on the page.
     table = sorted(set(g for g in gaps if g[3] == TABLE))
+    malformed = _once(g for g in gaps if g[3] == MALFORMED)
     out = []
     if filled:
         out += [f"### Descriptions not taken from source ({len(filled)})\n",
@@ -109,6 +121,13 @@ def render(gaps):
                 "| --- | --- | --- |"]
         out += [f"| {s} | {p} | {_cell(why)} |" for s, _, p, _f, why, _n in excluded]
         out.append("")
+    if malformed:
+        out += [f"### Malformed markdown ({len(malformed)})\n",
+                "| Scenario | Parameter | Problem |",
+                "| --- | --- | --- |"]
+        out += [f"| {s} | {p} | {_cell(why)} |" for s, _, p, _f, why, _n in malformed]
+        out += ["", "The source text is wrong, not the generated file. Fix the "
+                    "row it came from.\n"]
     if table:
         out += [f"### Hand-written tables ({len(table)})\n",
                 "| Page | What the bot did |",

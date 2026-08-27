@@ -10,7 +10,7 @@ from bot.parser import (doc_descriptions, extract_env_params,
 from bot.describe import describe_fn
 from bot.descriptions import attach_reasons, resolve_descriptions
 from bot.emitter import emit_data_file, load_previous
-from bot.report import write_report, EXCLUDED
+from bot.report import write_report, malformed_descriptions, EXCLUDED
 
 
 
@@ -36,16 +36,18 @@ def _krknctl_records(scn):
 def _published(website_root, scenario, source):
     """description and type cells from the table the shortcode is about to
     replace. Page directory names diverge from scenario names, hence find_tab."""
-    from bot.scaffold import find_tab, published_cell, published_table
+    from bot.scaffold import _bare, find_tab, published_cell, published_table
     tab = find_tab(website_root, scenario, source)
     if tab is None:
         return {}, {}
     rows = published_table(tab.read_text(encoding="utf-8"))
 
-    def col(c):
-        return {k: published_cell(rows, k, c) for k in rows
+    def col(c, clean=lambda v: v):
+        return {k: clean(published_cell(rows, k, c)) for k in rows
                 if published_cell(rows, k, c)}
-    return col("description"), col("type")
+    # A type is one token and pages write it `string`; a description is prose
+    # and its code spans have to survive.
+    return col("description"), col("type", _bare)
 
 
 def _emit_one(scenario, source, records, website_root, source_ref, scn, memo):
@@ -76,7 +78,8 @@ def _emit_one(scenario, source, records, website_root, source_ref, scn, memo):
     ids = {r.flag or r.name for r in records}
     orphans = [(scenario, source, k, "orphan", "", "")
                for k in pub_desc if k not in ids]
-    return [(scenario, source) + g for g in gaps] + orphans
+    broken = [(scenario, source) + x for x in malformed_descriptions(descs)]
+    return [(scenario, source) + g for g in gaps] + orphans + broken
 
 
 def run(scenario, krkn_hub_root, website_root, krkn_root: str | Path = "krkn",

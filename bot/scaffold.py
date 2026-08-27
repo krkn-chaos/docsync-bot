@@ -35,11 +35,18 @@ def inject_shortcode(text, scenario, source):
 
 
 def _row_cells(line):
-    r"""Cells of a table row, formatting stripped. Handles both page styles, and
-    keeps a \| inside its cell instead of starting a new one."""
+    r"""Cells of a table row, as written, keeping a \| inside its cell.
+    Backticks are left alone so a trailing code span survives; use _bare() for
+    a column that holds one identifier."""
     body = line.strip().strip("|")
-    return [c.strip().strip("`").strip().replace(r"\|", "|")
+    return [c.strip().replace(r"\|", "|")
             for c in re.split(r"(?<!\\)\|", body)]
+
+
+def _bare(cell):
+    """A cell as an identifier: `NAME` -> NAME. Only for columns that hold one
+    token, never for prose."""
+    return cell.strip().strip("`").strip()
 
 
 _PARAM_HEADERS = ("parameter", "argument")
@@ -48,7 +55,7 @@ _PARAM_HEADERS = ("parameter", "argument")
 def _is_param_table(header_line):
     """All 52 published tables head their first column Parameter or Argument."""
     cells = _row_cells(header_line)
-    return bool(cells) and cells[0].lower() in _PARAM_HEADERS
+    return bool(cells) and _bare(cells[0]).lower() in _PARAM_HEADERS
 
 
 def _first_cell(line):
@@ -57,7 +64,7 @@ def _first_cell(line):
     cells = _row_cells(line)
     if not cells:
         return None
-    cell = cells[0]
+    cell = _bare(cells[0])
     if cell.startswith("--"):
         cell = cell[2:]
     return cell or None
@@ -85,7 +92,9 @@ def published_table(text):
     lines = text.splitlines()
     out = {}
     for header, _end, row_indexes in _tables(lines):
-        headers = [h.lower() for h in _row_cells(lines[header])]
+        # Headers are lookup keys for published_cell, so they must be bare even
+        # if the page writes them as `Parameter`.
+        headers = [_bare(h).lower() for h in _row_cells(lines[header])]
         for i in row_indexes:
             name = _first_cell(lines[i])
             if name and name not in out:

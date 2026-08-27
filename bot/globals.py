@@ -15,7 +15,7 @@ from bot.parser import extract_env_params, extract_krknctl_params, require_sourc
 from bot.emitter import emit_data_file, load_previous
 from bot.describe import describe_fn
 from bot.descriptions import attach_reasons, resolve_descriptions
-from bot.report import TABLE, write_report
+from bot.report import TABLE, malformed_descriptions, write_report
 
 GLOBAL_SCENARIO = "globals"
 OTHER_GROUP = "other"
@@ -131,6 +131,8 @@ def emit(website_root, krkn_hub_root, krkn_root, source_ref="HEAD"):
         names = {r.name for r in ordered}
         gaps += [(GLOBAL_SCENARIO, source, k, "orphan", "", "")
                  for k in published[source] if k not in names]
+        gaps += [(GLOBAL_SCENARIO, source) + x
+                 for x in malformed_descriptions(descs)]
         written.append(
             emit_data_file(website_root, GLOBAL_SCENARIO, source, ordered, descs, source_ref))
     return written, gaps

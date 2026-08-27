@@ -1,4 +1,4 @@
-from bot.report import EXCLUDED, main, render, write_report
+from bot.report import EXCLUDED, main, malformed_descriptions, render, write_report
 
 
 def _row(md, prefix):
@@ -145,3 +145,15 @@ def test_a_table_the_bot_left_alone_reaches_the_commit():
     assert "### Hand-written tables (1)" in md
     assert "| all-scenario-env-krknctl.md | mixed groups" in md
     assert "left alone" in md
+
+
+def test_an_unbalanced_backtick_is_reported():
+    """param-table renders descriptions through RenderString, so an open code
+    span swallows the rest of the cell on the published page."""
+    rows = malformed_descriptions({"A": "closes its `span`",
+                                   "B": "leaves `one open",
+                                   "C": ""})
+    assert [r[0] for r in rows] == ["B"]
+    md = render([("globals", "krkn-hub") + rows[0]])
+    assert "### Malformed markdown (1)" in md
+    assert "| globals | B | unbalanced backtick" in md
