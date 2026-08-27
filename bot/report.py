@@ -33,6 +33,9 @@ FILLED = ("published-table", "hub-doc")
 MODEL = "llm"
 ORPHAN = "orphan"
 EXCLUDED = "excluded"
+# What became of each hand-written table on a global page. A table the bot could
+# not resolve stays on the page, so the reason has to reach the reviewer.
+TABLE = "table"
 
 
 def _cell(text):
@@ -64,6 +67,9 @@ def render(gaps):
     excluded = _once(g for g in gaps if g[3] == EXCLUDED)
     # Orphans keep their source: which tab lost the row is the useful part.
     orphan = sorted(set(g for g in gaps if g[3] == ORPHAN))
+    # Not deduped through _once: two sections claiming one group report the same
+    # sentence twice, and both tables are still sitting on the page.
+    table = sorted(set(g for g in gaps if g[3] == TABLE))
     out = []
     if filled:
         out += [f"### Descriptions not taken from source ({len(filled)})\n",
@@ -102,6 +108,12 @@ def render(gaps):
                 "| Scenario | Parameter | Why |",
                 "| --- | --- | --- |"]
         out += [f"| {s} | {p} | {_cell(why)} |" for s, _, p, _f, why, _n in excluded]
+        out.append("")
+    if table:
+        out += [f"### Hand-written tables ({len(table)})\n",
+                "| Page | What the bot did |",
+                "| --- | --- |"]
+        out += [f"| {p} | {_cell(what)} |" for _s, _sr, p, _f, what, _n in table]
         out.append("")
     return "\n".join(out)
 

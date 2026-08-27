@@ -15,7 +15,7 @@ from bot.parser import extract_env_params, extract_krknctl_params, require_sourc
 from bot.emitter import emit_data_file, load_previous
 from bot.describe import describe_fn
 from bot.descriptions import attach_reasons, resolve_descriptions
-from bot.report import write_report
+from bot.report import TABLE, write_report
 
 GLOBAL_SCENARIO = "globals"
 OTHER_GROUP = "other"
@@ -167,6 +167,13 @@ def scaffold(website_root, krkn_hub_root, krkn_root):
     return report
 
 
+def _table_gap(line):
+    """A scaffold line, "<page>: <what happened>", as a gap row. Split once: a
+    page name has no ": " in it, but a reason can."""
+    page, _, what = line.partition(": ")
+    return ("globals", "", page, TABLE, what, "")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Generate global parameter data files")
     ap.add_argument("--krkn-hub", required=True, help="Path to the krkn-hub repo root")
@@ -183,8 +190,12 @@ def main() -> None:
         print(path)
     write_report(gaps)
     if args.scaffold:
-        for line in scaffold(args.website, args.krkn_hub, args.krkn):
+        lines = scaffold(args.website, args.krkn_hub, args.krkn)
+        for line in lines:
             print(line)
+        # Stdout only reaches the Actions log. A table the bot left alone is
+        # still on the page, so the reason belongs in the commit message.
+        write_report([_table_gap(line) for line in lines])
 
 
 if __name__ == "__main__":

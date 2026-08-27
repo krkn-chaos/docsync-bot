@@ -329,3 +329,12 @@ def test_provenance_survives_a_second_run(tmp_path):
     row = next(r for r in rows if r["name"] == "SIGNAL_STATE")
     assert row["description"] == "Waits for the RUN signal"
     assert row["description_source"] == "published-table"
+
+
+def test_a_scaffold_line_splits_on_the_page_name_only():
+    """A reason carries its own colon, e.g. "cerberus: replaced 2 rows", so
+    splitting on every ": " would file the row under the wrong page."""
+    row = g._table_gap("all-scenario-env-krknctl.md: cerberus: replaced 2 rows")
+    assert row[2] == "all-scenario-env-krknctl.md"
+    assert row[4] == "cerberus: replaced 2 rows"
+    assert row[3] == "table"

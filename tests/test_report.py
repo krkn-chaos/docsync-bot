@@ -135,3 +135,13 @@ def test_rows_from_several_targets_merge_into_one_section(tmp_path, monkeypatch)
 def test_writing_without_a_report_dir_is_a_no_op(monkeypatch):
     monkeypatch.delenv("GH_AW_REPORT_DIR", raising=False)
     write_report([("a", "krkn-hub", "X", "llm", "one", "")])
+
+
+def test_a_table_the_bot_left_alone_reaches_the_commit():
+    """The reason was printed to stdout only, so a reviewer saw a page with a
+    stale table and no explanation. See the mixed-group case on website#616."""
+    md = render([("globals", "", "all-scenario-env-krknctl.md", "table",
+                  "mixed groups ['kraken', 'prometheus'], left alone", "")])
+    assert "### Hand-written tables (1)" in md
+    assert "| all-scenario-env-krknctl.md | mixed groups" in md
+    assert "left alone" in md
