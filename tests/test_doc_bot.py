@@ -147,6 +147,32 @@ def test_env_params_borrow_type_from_krknctl(tmp_path):
     assert rows["RUNS"]["type"] == "number"
 
 
+def test_env_params_borrow_group_from_krknctl(tmp_path):
+    """env.sh has no grouping, so which table a param belongs on comes from
+    krknctl. A group definition entry configures nothing and must not become a row."""
+    hub = tmp_path / "hub"
+    scn = hub / "network-chaos"
+    scn.mkdir(parents=True)
+    (scn / "env.sh").write_text(
+        'export DURATION="${DURATION:-300}"\n'
+        'export EGRESS="${EGRESS:-x}"\n'
+        'export WAIT_DURATION="${WAIT_DURATION:-300}"\n', encoding="utf-8")
+    (scn / "krknctl-input.json").write_text(
+        '[{"name": "egress", "type": "Group", "description": "Egress group"},'
+        ' {"variable": "DURATION", "type": "number"},'
+        ' {"variable": "EGRESS", "type": "string", "group": "egress"},'
+        ' {"variable": "WAIT_DURATION", "type": "number", "group": "ingress"}]',
+        encoding="utf-8")
+    website = _site(tmp_path)
+    doc_bot.run(scenario="network-chaos", krkn_hub_root=hub, website_root=website)
+    rows = _params(website, "network-chaos")
+    assert rows["EGRESS"]["group"] == "egress"
+    assert rows["WAIT_DURATION"]["group"] == "ingress"
+    # No group means shared: the shortcode reads that off the key's absence.
+    assert "group" not in rows["DURATION"]
+    assert "egress" not in rows
+
+
 def test_env_only_param_is_left_blank_not_papered_over(tmp_path):
     hub = tmp_path / "hub"
     scn = hub / "node-scenarios"

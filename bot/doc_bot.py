@@ -10,7 +10,7 @@ from bot.parser import (doc_descriptions, extract_env_params,
 from bot.describe import describe_fn
 from bot.descriptions import attach_reasons, resolve_descriptions
 from bot.emitter import emit_data_file, load_previous
-from bot.report import write_report, malformed_descriptions, EXCLUDED
+from bot.report import write_report, malformed_descriptions, EXCLUDED, TABLE
 
 
 
@@ -22,6 +22,13 @@ def _split(records, skip):
         reason = is_global(r, skip)
         (excluded.append((r.name, reason)) if reason else kept.append(r))
     return kept, excluded
+
+
+def _table_gap(scenario, line):
+    """A scaffold line, "<page>: <what happened>", as a gap row. Split once: a
+    page name has no ": " in it, but a reason can."""
+    page, _, what = line.partition(": ")
+    return (scenario, "", page, TABLE, what, "")
 
 
 def _krknctl_records(scn):
@@ -112,6 +119,10 @@ def run(scenario, krkn_hub_root, website_root, krkn_root: str | Path = "krkn",
                     r.borrowed_description = match.description
                 if r.type is None:
                     r.type = match.type
+                # env.sh has no grouping, so which table a param belongs on comes
+                # from krknctl. No group means shared: it renders on every table.
+                if r.group is None:
+                    r.group = match.group
             gaps += _emit_one(scenario, "krkn-hub", recs, website_root, source_ref, scn, memo)
     if (scn / "krknctl-input.json").exists():
         recs, excluded = _split(extract_krknctl_params(scn / "krknctl-input.json"), skip)
@@ -150,7 +161,10 @@ def main():
     write_report(gaps)
     if args.scaffold:
         from bot.scaffold import scaffold_scenario
-        scaffold_scenario(scenario, website_root)
+        lines = scaffold_scenario(scenario, website_root)
+        for line in lines:
+            print(line)
+        write_report([_table_gap(scenario, line) for line in lines])
 
 
 if __name__ == "__main__":

@@ -45,14 +45,21 @@ MALFORMED = "malformed"
 # A \` is a literal backtick and opens nothing, so counting it would report
 # valid prose.
 _SPAN_TICK = re.compile(r"(?<!\\)`")
+# Harmless in the hand-written table it came from, where a cell is inline. The
+# shortcode renders the cell as markdown, so there it is not.
+_BLOCK_START = re.compile(r"^\s*(#{1,6}\s|[-*+]\s)")
 
 
 def malformed_descriptions(descriptions):
     """(name, marker, reason, note) for each description whose markdown breaks.
     An odd backtick count leaves a code span open, swallowing the rest of the cell."""
-    return [(name, MALFORMED, "unbalanced backtick, the code span never closes", "")
-            for name, text in sorted(descriptions.items())
-            if len(_SPAN_TICK.findall(text or "")) % 2]
+    return ([(name, MALFORMED, "unbalanced backtick, the code span never closes", "")
+             for name, text in sorted(descriptions.items())
+             if len(_SPAN_TICK.findall(text or "")) % 2]
+            + [(name, MALFORMED, "starts with a markdown block marker, so the cell "
+                "would render as a heading or a list; drop it in the source", "")
+               for name, text in sorted(descriptions.items())
+               if _BLOCK_START.match(text or "")])
 
 
 def _cell(text):

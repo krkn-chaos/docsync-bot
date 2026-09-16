@@ -165,3 +165,12 @@ def test_an_escaped_backtick_is_not_a_code_span():
     rows = malformed_descriptions({"A": r"use \` to quote",
                                    "B": r"a \` and one `open"})
     assert [r[0] for r in rows] == ["B"]
+
+
+def test_a_description_starting_with_a_block_marker_is_reported():
+    """Escaping keeps the table intact, but the stray marker is still wrong in
+    the source, so it has to be visible to whoever can fix it."""
+    rows = malformed_descriptions({"A": "# Dictionary with key as node name(s)",
+                                   "B": "- a list", "C": "Duration in seconds."})
+    assert [r[0] for r in rows] == ["A", "B"]
+    assert all("block marker" in r[2] for r in rows)

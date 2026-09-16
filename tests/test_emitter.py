@@ -1,6 +1,8 @@
+import pytest
 import yaml
 from bot.parser import ParamRecord
-from bot.emitter import emit_data_text, load_descriptions, load_previous
+from bot.emitter import (emit_data_file, emit_data_text, load_descriptions,
+                         load_previous)
 
 
 def test_krkn_hub_omits_absent_optional_fields():
@@ -28,7 +30,8 @@ def test_group_is_emitted_when_present():
 
 
 def test_group_is_omitted_when_absent():
-    """Per-scenario params have no group and must not gain an empty key."""
+    """No group means shared, and the shortcode reads that off the key's absence,
+    so an ungrouped param must not gain an empty one."""
     p = yaml.safe_load(emit_data_text(
         "node-scenarios", "krkn-hub", [ParamRecord(name="ACTION")],
         {"ACTION": "Act."}, "r"))["params"][0]
@@ -219,3 +222,83 @@ def test_a_shortcode_call_in_a_description_cannot_run():
         "node-scenarios", "krkn-hub", [ParamRecord(name="X")],
         {"X": '{{% include "http://evil.example" %}}'}, "abc"))["params"][0]
     assert "{{" not in p["description"]
+
+
+def _write(path, *rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.dump({"params": list(rows)}), encoding="utf-8")
+
+
+def test_dropping_every_group_raises_instead_of_overwriting(tmp_path):
+    """The page still asks for each group by name, so a file that lost them all
+    fails the Hugo build a step later. See docsync-bot#36."""
+    out = tmp_path / "data/params/network-chaos/krkn-hub.yaml"
+    _write(out, {"name": "EGRESS", "description": "x", "group": "egress"})
+    with pytest.raises(ValueError, match=r"would lose group\(s\) egress"):
+        emit_data_file(tmp_path, "network-chaos", "krkn-hub",
+                       [ParamRecord(name="EGRESS")], {"EGRESS": "x"}, "abc")
+    assert "group: egress" in out.read_text(encoding="utf-8")
+
+
+def test_a_run_that_keeps_one_group_still_writes(tmp_path):
+    out = tmp_path / "data/params/network-chaos/krkn-hub.yaml"
+    _write(out, {"name": "EGRESS", "description": "x", "group": "egress"})
+    emit_data_file(tmp_path, "network-chaos", "krkn-hub",
+                   [ParamRecord(name="EGRESS", group="egress"),
+                    ParamRecord(name="DURATION")], {"EGRESS": "x", "DURATION": "y"}, "abc")
+    rows = yaml.safe_load(out.read_text(encoding="utf-8"))["params"]
+    assert [r.get("group") for r in rows] == ["egress", None]
+
+
+def test_an_ungrouped_file_stays_ungrouped(tmp_path):
+    out = tmp_path / "data/params/pvc-scenario/krkn-hub.yaml"
+    _write(out, {"name": "A", "description": "x"})
+    emit_data_file(tmp_path, "pvc-scenario", "krkn-hub",
+                   [ParamRecord(name="A")], {"A": "x"}, "abc")
+    assert "group" not in out.read_text(encoding="utf-8")
+
+
+def test_losing_one_group_of_several_raises(tmp_path):
+    """The surviving group does not save the page: the call for the lost one is
+    still there, matching nothing."""
+    out = tmp_path / "data/params/network-chaos/krkn-hub.yaml"
+    _write(out, {"name": "EGRESS", "description": "x", "group": "egress"},
+           {"name": "WAIT", "description": "y", "group": "ingress"})
+    with pytest.raises(ValueError, match=r"would lose group\(s\) ingress"):
+        emit_data_file(tmp_path, "network-chaos", "krkn-hub",
+                       [ParamRecord(name="EGRESS", group="egress")], {"EGRESS": "x"}, "abc")
+    assert "group: ingress" in out.read_text(encoding="utf-8")
+
+
+def test_a_new_group_alongside_the_old_ones_is_fine(tmp_path):
+    out = tmp_path / "data/params/network-chaos/krkn-hub.yaml"
+    _write(out, {"name": "EGRESS", "description": "x", "group": "egress"})
+    emit_data_file(tmp_path, "network-chaos", "krkn-hub",
+                   [ParamRecord(name="EGRESS", group="egress"),
+                    ParamRecord(name="WAIT", group="ingress")],
+                   {"EGRESS": "x", "WAIT": "y"}, "abc")
+    assert "group: ingress" in out.read_text(encoding="utf-8")
+
+
+def test_a_leading_hash_cannot_turn_the_cell_into_a_heading():
+    """A hand-written cell that opens with "# " is inline where it came from.
+    The shortcode renders the cell as markdown, so it would become an <h1>."""
+    p = yaml.safe_load(emit_data_text(
+        "network-chaos", "krkn-hub", [ParamRecord(name="TARGET_NODE_AND_INTERFACE")],
+        {"TARGET_NODE_AND_INTERFACE": "# Dictionary with key as node name(s)"}, "r"))["params"][0]
+    assert p["description"] == "&#35; Dictionary with key as node name(s)"
+
+
+def test_a_leading_list_marker_is_escaped_but_a_minus_number_is_not():
+    def d(text):
+        return yaml.safe_load(emit_data_text(
+            "s", "krkn-hub", [ParamRecord(name="X")], {"X": text}, "r"))["params"][0]["description"]
+    assert d("- one of several") == "&#45; one of several"
+    assert d("-1 means unlimited") == "-1 means unlimited"
+
+
+def test_escaping_a_block_marker_stays_idempotent():
+    once = emit_data_text("s", "krkn-hub", [ParamRecord(name="X")], {"X": "# heading"}, "r")
+    twice = emit_data_text("s", "krkn-hub", [ParamRecord(name="X")],
+                           {"X": yaml.safe_load(once)["params"][0]["description"]}, "r")
+    assert once == twice

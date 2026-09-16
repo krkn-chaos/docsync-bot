@@ -323,6 +323,68 @@ def test_a_group_with_no_rows_fails_the_build(site):
     assert 'group "nosuchgroup" has no params' in proc.stderr
 
 
+# a row with no group is shared: one page, several tables, each param stored once
+
+SHARED = """\
+params:
+  - name: DURATION
+    description: Shared by both.
+  - name: NODE_NAME
+    description: Egress only.
+    group: egress
+  - name: WAIT_DURATION
+    description: Ingress only.
+    group: ingress
+"""
+
+
+def test_an_ungrouped_row_renders_in_every_group(site):
+    site.data("nc", "krkn-hub", SHARED)
+    e = site.page("s1", "nc", "krkn-hub", group="egress")
+    i = site.page("s2", "nc", "krkn-hub", group="ingress")
+    assert site.build().returncode == 0
+    assert [cells(site.html(e), r)[0] for r in (0, 1)] == ["DURATION", "NODE_NAME"]
+    assert [cells(site.html(i), r)[0] for r in (0, 1)] == ["DURATION", "WAIT_DURATION"]
+
+
+def test_an_unfiltered_call_renders_each_row_once(site):
+    """The krknctl tab renders one flat table off the same file the krkn-hub tab
+    splits, so a shared row must not come back twice."""
+    site.data("nc", "krkn-hub", SHARED)
+    rel = site.page("s3", "nc", "krkn-hub")
+    assert site.build().returncode == 0
+    assert [cells(site.html(rel), r)[0] for r in (0, 1, 2)] == [
+        "DURATION", "NODE_NAME", "WAIT_DURATION"]
+
+
+def test_a_shared_row_carries_its_column_into_every_group(site):
+    site.data("nc", "krkn-hub", """\
+params:
+  - name: SHARED
+    description: Shared.
+    possible_values: [a, b]
+  - name: E_ONLY
+    description: E.
+    group: egress
+""")
+    rel = site.page("s4", "nc", "krkn-hub", group="egress")
+    assert site.build().returncode == 0
+    assert headers(site.html(rel)) == ["Parameter", "Description", "Possible Values"]
+
+
+def test_a_group_no_row_names_fails_even_when_rows_are_shared(site):
+    """Shared rows would otherwise fill any group, hiding a typo in the call."""
+    site.data("nc", "krkn-hub", """\
+params:
+  - name: DURATION
+    description: Shared.
+""")
+    site.page("s5", "nc", "krkn-hub", group="egress")
+    proc = site.build()
+    assert proc.returncode != 0
+    assert 'group "egress" has no params' in proc.stderr
+
+
 # the shipped example data files must render cleanly
 
 def test_example_node_scenarios_renders_four_columns(site):

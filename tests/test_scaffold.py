@@ -213,6 +213,120 @@ def test_a_table_that_is_not_parameters_is_left_alone():
     assert "| DUR | how long |" not in out
 
 
+TWO_TABLES = """\
+##### Egress Scenarios
+
+| Parameter | Description |
+| --- | --- |
+| EGRESS | shape it |
+
+##### Ingress Scenarios
+
+| Parameter | Description |
+| --- | --- |
+| WAIT_DURATION | how long |
+"""
+
+
+def test_a_page_with_two_parameter_tables_is_left_alone():
+    """Replacing one strands the other, and no later run comes back for it: the
+    idempotency guard sees the call that got written. See docsync-bot#36."""
+    out = inject_shortcode(TWO_TABLES, "network-chaos", "krkn-hub")
+    assert out == TWO_TABLES
+
+
+def _two_table_page(tmp_path, params):
+    website = tmp_path / "site"
+    d = website / "content/en/docs/scenarios/network-chaos"
+    d.mkdir(parents=True)
+    (d / "_index.md").write_text("---\ntitle: X\n---\n", encoding="utf-8")
+    (d / "_tab-krkn-hub.md").write_text(TWO_TABLES, encoding="utf-8")
+    data = website / "data/params/network-chaos"
+    data.mkdir(parents=True)
+    (data / "krkn-hub.yaml").write_text(params, encoding="utf-8")
+    return website, d / "_tab-krkn-hub.md"
+
+
+def test_two_tables_are_split_by_the_groups_the_source_declares(tmp_path):
+    """Which table is which comes from the source, so the bot can finish the job
+    instead of handing it back. See docsync-bot#36."""
+    website, tab = _two_table_page(tmp_path, """params:
+  - name: EGRESS
+    description: shape it
+    group: egress
+  - name: WAIT_DURATION
+    description: how long
+    group: ingress
+""")
+    report = scaffold_scenario("network-chaos", website)
+    out = tab.read_text(encoding="utf-8")
+    assert '{{< param-table scenario="network-chaos" source="krkn-hub" group="egress" >}}' in out
+    assert '{{< param-table scenario="network-chaos" source="krkn-hub" group="ingress" >}}' in out
+    assert "| EGRESS |" not in out and "| WAIT_DURATION |" not in out
+    assert report == ["network-chaos/_tab-krkn-hub.md: egress: replaced 1 rows",
+                      "network-chaos/_tab-krkn-hub.md: ingress: replaced 1 rows"]
+
+
+def test_a_page_is_split_all_or_nothing(tmp_path):
+    """One table resolving and the other not would leave a call beside a table,
+    which is the half-converted page this whole change is about."""
+    website, tab = _two_table_page(tmp_path, """params:
+  - name: EGRESS
+    description: shape it
+    group: egress
+  - name: WAIT_DURATION
+    description: how long
+""")
+    report = scaffold_scenario("network-chaos", website)
+    assert tab.read_text(encoding="utf-8") == TWO_TABLES
+    assert report == ["network-chaos/_tab-krkn-hub.md: 2 parameter tables, left "
+                      "alone. Give each param a group in the source, then split "
+                      "the page by group"]
+
+
+def test_a_scenario_page_gains_no_appended_section(tmp_path):
+    """The global pages append a section for a group no table claims. A scenario
+    tab is read into a tabpane, so a new ## heading there is out of place."""
+    website, tab = _two_table_page(tmp_path, """params:
+  - name: EGRESS
+    description: shape it
+    group: egress
+  - name: WAIT_DURATION
+    description: how long
+    group: ingress
+  - name: BMC_USER
+    description: bmc
+    group: baremetal
+""")
+    scaffold_scenario("network-chaos", website)
+    out = tab.read_text(encoding="utf-8")
+    assert "## Baremetal" not in out
+    assert 'group="baremetal"' not in out
+
+
+def test_two_tables_stay_put_when_the_source_declares_no_groups(tmp_path):
+    """Nothing says which table is which, so guessing would strand rows."""
+    website, tab = _two_table_page(tmp_path, """params:
+  - name: EGRESS
+    description: shape it
+  - name: WAIT_DURATION
+    description: how long
+""")
+    report = scaffold_scenario("network-chaos", website)
+    assert tab.read_text(encoding="utf-8") == TWO_TABLES
+    assert report == ["network-chaos/_tab-krkn-hub.md: 2 parameter tables, left "
+                      "alone. Give each param a group in the source, then split "
+                      "the page by group"]
+
+
+def test_scaffold_reports_nothing_for_a_single_table_page(tmp_path):
+    website = tmp_path / "site"
+    tab = _make_page(website, "pvc-scenario", source_id="pvc-scenario")
+    _data(website, "pvc-scenario", "krkn-hub")
+    assert scaffold_scenario("pvc-scenario", website) == []
+    assert "param-table" in tab.read_text(encoding="utf-8")
+
+
 def test_an_argument_header_is_a_parameter_table():
     """7 of the 52 published tabs head the column Argument, not Parameter."""
     page = "| Argument | Description |\n| --- | --- |\n| DUR | how long |\n"
@@ -247,3 +361,42 @@ def test_a_backticked_header_still_marks_a_param_table():
     assert _is_param_table("| `Parameter` | Description | Default |")
     assert _is_param_table("| Parameter | Description | Default |")
     assert not _is_param_table("| Step | Notes |")
+
+
+HALF_CONVERTED = """##### Egress Scenarios
+
+{{< param-table scenario="network-chaos" source="krkn-hub" >}}
+
+##### Ingress Scenarios
+
+| Parameter | Description |
+| --- | --- |
+| WAIT_DURATION | how long |
+"""
+
+
+def test_scaffold_reports_a_half_converted_page(tmp_path):
+    """One call and one table left is the state the old bug produced. The
+    idempotency guard skips the page, so nothing else would ever mention it."""
+    website = tmp_path / "site"
+    d = website / "content/en/docs/scenarios/network-chaos"
+    d.mkdir(parents=True)
+    (d / "_index.md").write_text("---\ntitle: X\n---\n", encoding="utf-8")
+    (d / "_tab-krkn-hub.md").write_text(HALF_CONVERTED, encoding="utf-8")
+    _data(website, "network-chaos", "krkn-hub")
+    report = scaffold_scenario("network-chaos", website)
+    assert (d / "_tab-krkn-hub.md").read_text(encoding="utf-8") == HALF_CONVERTED
+    assert report == ["network-chaos/_tab-krkn-hub.md: a param-table call and 1 "
+                      "hand-written table(s), left alone. Give each param a group "
+                      "in the source, then split the page by group"]
+
+
+def test_a_fully_converted_page_is_not_reported(tmp_path):
+    website = tmp_path / "site"
+    d = website / "content/en/docs/scenarios/pvc-scenario"
+    d.mkdir(parents=True)
+    (d / "_index.md").write_text("---\ntitle: X\n---\n", encoding="utf-8")
+    (d / "_tab-krkn-hub.md").write_text(
+        '{{< param-table scenario="pvc-scenario" source="krkn-hub" >}}\n', encoding="utf-8")
+    _data(website, "pvc-scenario", "krkn-hub")
+    assert scaffold_scenario("pvc-scenario", website) == []

@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 import yaml
 
@@ -10,12 +11,19 @@ _FALLBACK_SOURCES = ("published-table", "llm", "krknctl", "crd-field",
                      "hub-doc", "built-in")
 
 
+# A description is one table cell, and the shortcode renders it as markdown. A
+# marker at the front turns the whole cell into a heading or a list.
+_LEADING_BLOCK = re.compile(r"^(\s*)(#|[-*+](?=\s))")
+
+
 def _escape(text):
-    """< and > for raw HTML, { for Hugo shortcodes. Never &, so a re-run stays
-    idempotent: the entities contain none of the escaped characters."""
+    """< and > for raw HTML, { for Hugo shortcodes, and a leading block marker.
+    Never &, so a re-run stays idempotent: the entities contain none of the
+    escaped characters, and an escaped marker no longer starts the line."""
     if not text:
         return text
-    return text.replace("<", "&lt;").replace(">", "&gt;").replace("{", "&#123;")
+    text = text.replace("<", "&lt;").replace(">", "&gt;").replace("{", "&#123;")
+    return _LEADING_BLOCK.sub(lambda m: f"{m.group(1)}&#{ord(m.group(2))};", text)
 
 
 def _param_dict(rec, description, source, scenario):
@@ -24,8 +32,8 @@ def _param_dict(rec, description, source, scenario):
     d = {"name": rec.name, "description": _escape(description)}
     if rec.description_source in _FALLBACK_SOURCES:
         d["description_source"] = rec.description_source
-    # Only global params have a group. It travels in the data so one file can
-    # hold every group and the shortcode filters on it.
+    # The group travels in the data so one file can hold every group and the
+    # shortcode filters on it. No group means shared: it renders on every table.
     if rec.group is not None:
         d["group"] = rec.group
     if rec.type is not None:
@@ -80,8 +88,23 @@ def load_previous(path):
     return {p["name"]: p for p in data.get("params", [])}
 
 
+def _groups(path):
+    """Group names in the committed file."""
+    path = Path(path)
+    if not path.exists():
+        return set()
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return {p["group"] for p in data.get("params", []) if p.get("group")}
+
+
 def emit_data_file(out_root, scenario, source, records, descriptions, source_ref):
     path = Path(out_root) / "data" / "params" / scenario / f"{source}.yaml"
+    # A missing group leaves its group= call with no rows, which fails the Hugo
+    # build a step later. One is enough, the others surviving does not help.
+    lost = _groups(path) - {r.group for r in records if r.group}
+    if lost:
+        raise ValueError(f"{path} would lose group(s) {', '.join(sorted(lost))}, "
+                         f"which the page still asks for")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(emit_data_text(scenario, source, records, descriptions, source_ref),
                     encoding="utf-8")
