@@ -171,6 +171,39 @@ def test_global_stale_default_is_reported(tmp_path):
                and f.old == "True" and f.new == "False" for f in fs)
 
 
+def test_global_findings_passes_website_root_to_preserve_page_groups(tmp_path):
+    hub = tmp_path / "hub"
+    hub.mkdir(parents=True, exist_ok=True)
+    (hub / "env.sh").write_text(
+        "export ENABLE_ES=${ENABLE_ES:=False}\n",
+        encoding="utf-8")
+    c = tmp_path / "krkn" / "containers"
+    c.mkdir(parents=True)
+    (c / "krknctl-input.json").write_text(
+        '[{"name": "enable-es", "variable": "ENABLE_ES",'
+        ' "group": "elasticsearch", "default": "False"}]', encoding="utf-8")
+
+    web = tmp_path / "web"
+    page_dir = web / "content/en/docs/scenarios"
+    page_dir.mkdir(parents=True)
+    (page_dir / "all-scenario-env.md").write_text(
+        "## Elastic\n\n| Parameter | Description |\n|---|---|\n| ENABLE_ES | desc |\n",
+        encoding="utf-8")
+
+    d = web / "data/params/globals"
+    d.mkdir(parents=True)
+    (d / "krknctl.yaml").write_text(
+        "params:\n  - name: enable-es\n    group: elasticsearch\n    default: 'False'\n",
+        encoding="utf-8")
+    (d / "krkn-hub.yaml").write_text(
+        "params:\n  - name: ENABLE_ES\n    group: elastic\n    default: 'False'\n",
+        encoding="utf-8")
+
+    fs = ds.global_findings(hub, tmp_path / "krkn", web)
+    assert not any(f.param == "ENABLE_ES" for f in fs)
+    assert not any(f.source == "krkn-hub-elasticsearch" for f in fs)
+
+
 def test_globals_get_their_own_checkbox(tmp_path):
     hub, krkn = _globals_sources(tmp_path)
     body = ds.format_report(ds.global_findings(hub, krkn, tmp_path / "web"))
