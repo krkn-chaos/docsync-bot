@@ -132,7 +132,7 @@ def global_findings(krkn_hub_root, krkn_root, website_root,
     group."""
     from bot.globals import GLOBAL_SCENARIO, OTHER_GROUP, build_groups
 
-    ctl, env = build_groups(krkn_hub_root, krkn_root)
+    ctl, env = build_groups(krkn_hub_root, krkn_root, website_root)
     findings = []
     for prefix, records, source_file in (
         ("krknctl", ctl, f"{krkn_url}/containers/krknctl-input.json"),
