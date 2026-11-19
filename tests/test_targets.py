@@ -40,6 +40,40 @@ def test_a_page_the_bot_links_resolves_to_the_operator():
                    CRDS) == ["operator"]
 
 
+def test_global_pages_resolve_to_globals():
+    """The two global pages where group-filtered shortcodes live must resolve to
+    globals so /resync can regenerate them."""
+    assert resolve(["content/en/docs/scenarios/all-scenario-env.md"],
+                   CRDS) == ["globals"]
+    assert resolve(["content/en/docs/scenarios/all-scenario-env-krknctl.md"],
+                   CRDS) == ["globals"]
+
+
+def test_scenario_tab_pages_resolve_to_scenario():
+    """A pull request touching scenario tab files (top-level or nested under category
+    folders) must resolve to that scenario."""
+    assert resolve(["content/en/docs/scenarios/node-scenarios/_tab-krkn-hub.md"],
+                   CRDS) == ["node-scenarios"]
+    assert resolve(["content/en/docs/scenarios/hog-scenarios/node-cpu-hog/_tab-krknctl.md"],
+                   CRDS) == ["node-cpu-hog"]
+
+
+def test_scenario_tab_reads_declared_marker_id_over_directory_name(tmp_path):
+    """When a folder name diverges from its declared scenario id (e.g.
+    pod-network-scenario holding id="pod-network-chaos"), the declared id wins."""
+    scn_dir = tmp_path / "content/en/docs/scenarios/pod-network-scenario"
+    scn_dir.mkdir(parents=True)
+    (scn_dir / "_index.md").write_text('<krkn-hub-scenario id="pod-network-chaos">\n', encoding="utf-8")
+    tab_path = "content/en/docs/scenarios/pod-network-scenario/_tab-krkn-hub.md"
+    assert resolve([tab_path], CRDS, website_root=tmp_path) == ["pod-network-chaos"]
+
+
+def test_tab_directly_under_scenarios_root_is_ignored():
+    """A tab file placed directly under content/en/docs/scenarios/ has no enclosing
+    scenario folder and must not resolve to 'scenarios'."""
+    assert resolve(["content/en/docs/scenarios/_tab-krkn-hub.md"], CRDS) == []
+
+
 def test_a_mixed_pull_request_resolves_every_target_once():
     """The real upstream case: one run touched several sources."""
     changed = ["data/params/globals/krkn-hub.yaml",
